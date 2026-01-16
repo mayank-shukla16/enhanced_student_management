@@ -319,7 +319,7 @@ class EnhancedStudentDataModel:
         return self.base_columns + self._all_subjects()
 
     def _ensure_columns_and_types(self):
-    expected = self._expected_columns()
+        expected = self._expected_columns()
     
     # Ensure all columns exist
     for col in expected:
@@ -2780,4 +2780,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
