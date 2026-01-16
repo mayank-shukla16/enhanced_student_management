@@ -826,97 +826,97 @@ class EnhancedStudentDataModel:
         return results
 
     def bulk_import_students(self, file):
-    """Bulk import students from CSV/Excel - FIXED VERSION"""
-    try:
-        # Check if file is empty
-        if file.size == 0:
-            return False, "Import failed: Uploaded file is empty", []
-        
-        # Reset file pointer
-        file.seek(0)
-        
-        # Try to read the file based on extension
+        """Bulk import students from CSV/Excel - FIXED VERSION"""
         try:
-            if file.name.endswith('.csv'):
-                new_data = pd.read_csv(file)
-            elif file.name.endswith(('.xlsx', '.xls')):
-                new_data = pd.read_excel(file)
-            else:
-                return False, "Import failed: Unsupported file format. Use CSV or Excel files", []
-        except Exception as read_error:
-            return False, f"Import failed: Cannot read file. Error: {str(read_error)}", []
-        
-        # Check if data was actually read
-        if new_data.empty:
-            return False, "Import failed: No data found in file or file is empty", []
-        
-        # Check for required columns
-        required_columns = ['StudentID', 'Name', 'Age', 'Grade', 'Stream']
-        missing_columns = [col for col in required_columns if col not in new_data.columns]
-        
-        if missing_columns:
-            return False, f"Import failed: Missing required columns: {', '.join(missing_columns)}", []
-        
-        success_count = 0
-        error_messages = []
-        processed_rows = []
-        
-        # Process each row
-        for idx, row in new_data.iterrows():
-            try:
-                # Convert row to dictionary
-                data_dict = row.to_dict()
-                
-                # Convert numeric fields
-                if 'StudentID' in data_dict:
-                    try:
-                        data_dict['StudentID'] = int(float(data_dict['StudentID']))
-                    except:
-                        error_messages.append(f"Row {idx + 2}: Invalid StudentID format")
-                        continue
-                
-                if 'Age' in data_dict:
-                    try:
-                        if pd.notna(data_dict['Age']):
-                            data_dict['Age'] = int(float(data_dict['Age']))
-                    except:
-                        error_messages.append(f"Row {idx + 2}: Invalid Age format")
-                        continue
-                
-                # Handle optional fields
-                for col in new_data.columns:
-                    if col not in data_dict or pd.isna(data_dict[col]):
-                        # Set default values for missing data
-                        if col in self._all_subjects():
-                            data_dict[col] = 0
-                        elif col in ['Name', 'Grade', 'Stream']:
-                            data_dict[col] = ""
-                        elif col == 'Age':
-                            data_dict[col] = 0
-                
-                # Add student
-                success, message = self.add_student(data_dict)
-                if success:
-                    success_count += 1
-                    processed_rows.append(data_dict['StudentID'])
-                else:
-                    error_messages.append(f"Row {idx + 2}: {message}")
-                    
-            except Exception as row_error:
-                error_messages.append(f"Row {idx + 2}: Unexpected error - {str(row_error)}")
-                continue
-        
-        # Summary message
-        if success_count > 0:
-            message = f"✅ Successfully imported {success_count} out of {len(new_data)} students"
-            if error_messages:
-                message += f" ({len(error_messages)} errors)"
-            return True, message, error_messages
-        else:
-            return False, f"❌ Failed to import any students. All {len(new_data)} rows had errors", error_messages
+            # Check if file is empty
+            if file.size == 0:
+                return False, "Import failed: Uploaded file is empty", []
             
-    except Exception as e:
-        return False, f"Import failed: {str(e)}", []
+            # Reset file pointer
+            file.seek(0)
+            
+            # Try to read the file based on extension
+            try:
+                if file.name.endswith('.csv'):
+                    new_data = pd.read_csv(file)
+                elif file.name.endswith(('.xlsx', '.xls')):
+                    new_data = pd.read_excel(file)
+                else:
+                    return False, "Import failed: Unsupported file format. Use CSV or Excel files", []
+            except Exception as read_error:
+                return False, f"Import failed: Cannot read file. Error: {str(read_error)}", []
+            
+            # Check if data was actually read
+            if new_data.empty:
+                return False, "Import failed: No data found in file or file is empty", []
+            
+            # Check for required columns
+            required_columns = ['StudentID', 'Name', 'Age', 'Grade', 'Stream']
+            missing_columns = [col for col in required_columns if col not in new_data.columns]
+            
+            if missing_columns:
+                return False, f"Import failed: Missing required columns: {', '.join(missing_columns)}", []
+            
+            success_count = 0
+            error_messages = []
+            processed_rows = []
+            
+            # Process each row
+            for idx, row in new_data.iterrows():
+                try:
+                    # Convert row to dictionary
+                    data_dict = row.to_dict()
+                    
+                    # Convert numeric fields
+                    if 'StudentID' in data_dict:
+                        try:
+                            data_dict['StudentID'] = int(float(data_dict['StudentID']))
+                        except:
+                            error_messages.append(f"Row {idx + 2}: Invalid StudentID format")
+                            continue
+                    
+                    if 'Age' in data_dict:
+                        try:
+                            if pd.notna(data_dict['Age']):
+                                data_dict['Age'] = int(float(data_dict['Age']))
+                        except:
+                            error_messages.append(f"Row {idx + 2}: Invalid Age format")
+                            continue
+                    
+                    # Handle optional fields
+                    for col in new_data.columns:
+                        if col not in data_dict or pd.isna(data_dict[col]):
+                            # Set default values for missing data
+                            if col in self._all_subjects():
+                                data_dict[col] = 0
+                            elif col in ['Name', 'Grade', 'Stream']:
+                                data_dict[col] = ""
+                            elif col == 'Age':
+                                data_dict[col] = 0
+                    
+                    # Add student
+                    success, message = self.add_student(data_dict)
+                    if success:
+                        success_count += 1
+                        processed_rows.append(data_dict['StudentID'])
+                    else:
+                        error_messages.append(f"Row {idx + 2}: {message}")
+                        
+                except Exception as row_error:
+                    error_messages.append(f"Row {idx + 2}: Unexpected error - {str(row_error)}")
+                    continue
+            
+            # Summary message
+            if success_count > 0:
+                message = f"✅ Successfully imported {success_count} out of {len(new_data)} students"
+                if error_messages:
+                    message += f" ({len(error_messages)} errors)"
+                return True, message, error_messages
+            else:
+                return False, f"❌ Failed to import any students. All {len(new_data)} rows had errors", error_messages
+                
+        except Exception as e:
+            return False, f"Import failed: {str(e)}", []
 
     def generate_email_report(self, student_id, recipient_email):
         """Generate and prepare email report"""
@@ -2780,5 +2780,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
