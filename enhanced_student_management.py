@@ -853,144 +853,144 @@ class EnhancedStudentDataModel:
         return results
 
         def bulk_import_students(self, file):
-        """Bulk import students from CSV/Excel - IMPROVED VERSION"""
-        try:
-            # Check if file is empty
-            if file.size == 0:
-                return False, "Import failed: Uploaded file is empty", []
-            
-            # Reset file pointer
-            file.seek(0)
-            
-            # Try to read the file based on extension
+            """Bulk import students from CSV/Excel - IMPROVED VERSION"""
             try:
-                if file.name.endswith('.csv'):
-                    # Read CSV with better parsing options
-                    new_data = pd.read_csv(file, keep_default_na=False)
-                elif file.name.endswith(('.xlsx', '.xls')):
-                    new_data = pd.read_excel(file, keep_default_na=False)
-                else:
-                    return False, "Import failed: Unsupported file format. Use CSV or Excel files", []
-            except Exception as read_error:
-                return False, f"Import failed: Cannot read file. Error: {str(read_error)}", []
-            
-            # Check if data was actually read
-            if new_data.empty:
-                return False, "Import failed: No data found in file or file is empty", []
-            
-            # Check for required columns
-            required_columns = ['StudentID', 'Name', 'Age', 'Grade', 'Stream']
-            missing_columns = [col for col in required_columns if col not in new_data.columns]
-            
-            if missing_columns:
-                return False, f"Import failed: Missing required columns: {', '.join(missing_columns)}", []
-            
-            success_count = 0
-            error_messages = []
-            
-            # Process each row
-            for idx, row in new_data.iterrows():
+                # Check if file is empty
+                if file.size == 0:
+                    return False, "Import failed: Uploaded file is empty", []
+                
+                # Reset file pointer
+                file.seek(0)
+                
+                # Try to read the file based on extension
                 try:
-                    # Convert row to dictionary
-                    data_dict = row.to_dict()
-                    
-                    # Clean up the data dictionary
-                    cleaned_data = {}
-                    
-                    # Handle required fields
-                    cleaned_data['StudentID'] = str(data_dict.get('StudentID', '')).strip()
-                    cleaned_data['Name'] = str(data_dict.get('Name', '')).strip()
-                    cleaned_data['Age'] = str(data_dict.get('Age', '')).strip()
-                    cleaned_data['Grade'] = str(data_dict.get('Grade', '')).strip()
-                    cleaned_data['Stream'] = str(data_dict.get('Stream', '')).strip()
-                    
-                    # Convert numeric fields
+                    if file.name.endswith('.csv'):
+                        # Read CSV with better parsing options
+                        new_data = pd.read_csv(file, keep_default_na=False)
+                    elif file.name.endswith(('.xlsx', '.xls')):
+                        new_data = pd.read_excel(file, keep_default_na=False)
+                    else:
+                        return False, "Import failed: Unsupported file format. Use CSV or Excel files", []
+                except Exception as read_error:
+                    return False, f"Import failed: Cannot read file. Error: {str(read_error)}", []
+                
+                # Check if data was actually read
+                if new_data.empty:
+                    return False, "Import failed: No data found in file or file is empty", []
+                
+                # Check for required columns
+                required_columns = ['StudentID', 'Name', 'Age', 'Grade', 'Stream']
+                missing_columns = [col for col in required_columns if col not in new_data.columns]
+                
+                if missing_columns:
+                    return False, f"Import failed: Missing required columns: {', '.join(missing_columns)}", []
+                
+                success_count = 0
+                error_messages = []
+                
+                # Process each row
+                for idx, row in new_data.iterrows():
                     try:
-                        cleaned_data['StudentID'] = int(float(cleaned_data['StudentID'])) if cleaned_data['StudentID'] else 0
-                    except:
-                        error_messages.append(f"Row {idx + 2}: Invalid StudentID format: {data_dict.get('StudentID', '')}")
-                        continue
-                    
-                    try:
-                        if cleaned_data['Age']:
-                            cleaned_data['Age'] = int(float(cleaned_data['Age']))
-                        else:
-                            cleaned_data['Age'] = 0
-                    except:
-                        error_messages.append(f"Row {idx + 2}: Invalid Age format: {data_dict.get('Age', '')}")
-                        continue
-                    
-                    # Handle subject marks - CRITICAL FIX
-                    all_subjects = self._all_subjects()
-                    for subject in all_subjects:
-                        if subject in data_dict:
-                            mark_value = data_dict[subject]
-                            
-                            # Convert to string first for cleaning
-                            if pd.isna(mark_value) or mark_value == '' or mark_value is None:
-                                # Check if subject should be N/A based on stream
-                                stream = cleaned_data.get('Stream', '')
-                                stream_subjects = self.streams.get(stream, [])
-                                if stream != 'Other' and subject not in stream_subjects and subject not in self.optional_subjects:
-                                    cleaned_data[subject] = "N/A"
-                                else:
-                                    cleaned_data[subject] = 0
+                        # Convert row to dictionary
+                        data_dict = row.to_dict()
+                        
+                        # Clean up the data dictionary
+                        cleaned_data = {}
+                        
+                        # Handle required fields
+                        cleaned_data['StudentID'] = str(data_dict.get('StudentID', '')).strip()
+                        cleaned_data['Name'] = str(data_dict.get('Name', '')).strip()
+                        cleaned_data['Age'] = str(data_dict.get('Age', '')).strip()
+                        cleaned_data['Grade'] = str(data_dict.get('Grade', '')).strip()
+                        cleaned_data['Stream'] = str(data_dict.get('Stream', '')).strip()
+                        
+                        # Convert numeric fields
+                        try:
+                            cleaned_data['StudentID'] = int(float(cleaned_data['StudentID'])) if cleaned_data['StudentID'] else 0
+                        except:
+                            error_messages.append(f"Row {idx + 2}: Invalid StudentID format: {data_dict.get('StudentID', '')}")
+                            continue
+                        
+                        try:
+                            if cleaned_data['Age']:
+                                cleaned_data['Age'] = int(float(cleaned_data['Age']))
                             else:
-                                # Try to convert to int
-                                try:
-                                    # Handle string marks like "85", "85.0", "85.5", etc.
-                                    mark_str = str(mark_value).strip()
-                                    if mark_str.lower() == 'n/a' or mark_str == '':
-                                        cleaned_data[subject] = "N/A"
-                                    else:
-                                        # Try to parse as float first, then convert to int
-                                        mark_float = float(mark_str)
-                                        cleaned_data[subject] = int(mark_float)
-                                except:
-                                    # If conversion fails, check if it should be N/A
+                                cleaned_data['Age'] = 0
+                        except:
+                            error_messages.append(f"Row {idx + 2}: Invalid Age format: {data_dict.get('Age', '')}")
+                            continue
+                        
+                        # Handle subject marks - CRITICAL FIX
+                        all_subjects = self._all_subjects()
+                        for subject in all_subjects:
+                            if subject in data_dict:
+                                mark_value = data_dict[subject]
+                                
+                                # Convert to string first for cleaning
+                                if pd.isna(mark_value) or mark_value == '' or mark_value is None:
+                                    # Check if subject should be N/A based on stream
                                     stream = cleaned_data.get('Stream', '')
                                     stream_subjects = self.streams.get(stream, [])
                                     if stream != 'Other' and subject not in stream_subjects and subject not in self.optional_subjects:
                                         cleaned_data[subject] = "N/A"
                                     else:
                                         cleaned_data[subject] = 0
-                        else:
-                            # Subject not in CSV, set default based on stream
-                            stream = cleaned_data.get('Stream', '')
-                            stream_subjects = self.streams.get(stream, [])
-                            if stream != 'Other' and subject not in stream_subjects and subject not in self.optional_subjects:
-                                cleaned_data[subject] = "N/A"
+                                else:
+                                    # Try to convert to int
+                                    try:
+                                        # Handle string marks like "85", "85.0", "85.5", etc.
+                                        mark_str = str(mark_value).strip()
+                                        if mark_str.lower() == 'n/a' or mark_str == '':
+                                            cleaned_data[subject] = "N/A"
+                                        else:
+                                            # Try to parse as float first, then convert to int
+                                            mark_float = float(mark_str)
+                                            cleaned_data[subject] = int(mark_float)
+                                    except:
+                                        # If conversion fails, check if it should be N/A
+                                        stream = cleaned_data.get('Stream', '')
+                                        stream_subjects = self.streams.get(stream, [])
+                                        if stream != 'Other' and subject not in stream_subjects and subject not in self.optional_subjects:
+                                            cleaned_data[subject] = "N/A"
+                                        else:
+                                            cleaned_data[subject] = 0
                             else:
-                                cleaned_data[subject] = 0
-                    
-                    # Add student with cleaned data
-                    success, message = self.add_student(cleaned_data)
-                    if success:
-                        success_count += 1
-                    else:
-                        error_messages.append(f"Row {idx + 2}: {message}")
+                                # Subject not in CSV, set default based on stream
+                                stream = cleaned_data.get('Stream', '')
+                                stream_subjects = self.streams.get(stream, [])
+                                if stream != 'Other' and subject not in stream_subjects and subject not in self.optional_subjects:
+                                    cleaned_data[subject] = "N/A"
+                                else:
+                                    cleaned_data[subject] = 0
                         
-                except Exception as row_error:
-                    error_messages.append(f"Row {idx + 2}: Unexpected error - {str(row_error)}")
-                    import traceback
-                    error_messages.append(f"Row {idx + 2}: Traceback - {traceback.format_exc()}")
-                    continue
-            
-            # After import, refresh the dataframe
-            self._ensure_columns_and_types()
-            
-            # Summary message
-            if success_count > 0:
-                message = f"✅ Successfully imported {success_count} out of {len(new_data)} students"
-                if error_messages:
-                    message += f" ({len(error_messages)} errors)"
-                return True, message, error_messages
-            else:
-                return False, f"❌ Failed to import any students. All {len(new_data)} rows had errors", error_messages
+                        # Add student with cleaned data
+                        success, message = self.add_student(cleaned_data)
+                        if success:
+                            success_count += 1
+                        else:
+                            error_messages.append(f"Row {idx + 2}: {message}")
+                            
+                    except Exception as row_error:
+                        error_messages.append(f"Row {idx + 2}: Unexpected error - {str(row_error)}")
+                        import traceback
+                        error_messages.append(f"Row {idx + 2}: Traceback - {traceback.format_exc()}")
+                        continue
                 
-        except Exception as e:
-            import traceback
-            return False, f"Import failed: {str(e)}\n{traceback.format_exc()}", []
+                # After import, refresh the dataframe
+                self._ensure_columns_and_types()
+                
+                # Summary message
+                if success_count > 0:
+                    message = f"✅ Successfully imported {success_count} out of {len(new_data)} students"
+                    if error_messages:
+                        message += f" ({len(error_messages)} errors)"
+                    return True, message, error_messages
+                else:
+                    return False, f"❌ Failed to import any students. All {len(new_data)} rows had errors", error_messages
+                    
+            except Exception as e:
+                import traceback
+                return False, f"Import failed: {str(e)}\n{traceback.format_exc()}", []
 
     def generate_email_report(self, student_id, recipient_email):
         """Generate and prepare email report"""
@@ -2930,6 +2930,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
