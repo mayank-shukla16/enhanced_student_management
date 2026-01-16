@@ -319,28 +319,44 @@ class EnhancedStudentDataModel:
         return self.base_columns + self._all_subjects()
 
     def _ensure_columns_and_types(self):
-        expected = self._expected_columns()
-        for col in expected:
-            if col not in self.students_df.columns:
-                self.students_df[col] = 0 if col in self._all_subjects() else ""
-        
-        if 'StudentID' in self.students_df.columns:
-            self.students_df['StudentID'] = pd.to_numeric(self.students_df['StudentID'], errors='coerce').astype('Int64')
-        if 'Age' in self.students_df.columns:
-            self.students_df['Age'] = pd.to_numeric(self.students_df['Age'], errors='coerce').astype('Int64')
-        
-        for subject in self._all_subjects():
-            if subject in self.students_df.columns:
-                self.students_df[subject] = self.students_df[subject].apply(
-                    lambda x: pd.to_numeric(x, errors='coerce') if x != "N/A" else "N/A"
-                )
-                self.students_df[subject] = self.students_df[subject].apply(
-                    lambda x: 0 if pd.isna(x) and x != "N/A" else x
-                )
-        
-        for col in ['Name', 'Grade', 'Stream']:
-            if col in self.students_df.columns:
-                self.students_df[col] = self.students_df[col].fillna("").astype(str)
+    expected = self._expected_columns()
+    
+    # Ensure all columns exist
+    for col in expected:
+        if col not in self.students_df.columns:
+            self.students_df[col] = 0 if col in self._all_subjects() else ""
+    
+    # Convert data types
+    if 'StudentID' in self.students_df.columns:
+        self.students_df['StudentID'] = pd.to_numeric(self.students_df['StudentID'], errors='coerce')
+        # Keep as float for now, convert to Int64 later
+        self.students_df['StudentID'] = self.students_df['StudentID'].fillna(0).astype('int64')
+    
+    if 'Age' in self.students_df.columns:
+        self.students_df['Age'] = pd.to_numeric(self.students_df['Age'], errors='coerce')
+        self.students_df['Age'] = self.students_df['Age'].fillna(0).astype('int64')
+    
+    # Handle subject marks
+    for subject in self._all_subjects():
+        if subject in self.students_df.columns:
+            # Convert to numeric, coerce errors to NaN
+            self.students_df[subject] = pd.to_numeric(self.students_df[subject], errors='coerce')
+            # Fill NaN with appropriate values
+            mask = self.students_df[subject].isna()
+            if mask.any():
+                # Check if subject should be N/A based on stream
+                for idx in self.students_df[mask].index:
+                    stream = self.students_df.loc[idx, 'Stream']
+                    stream_subjects = self.streams.get(stream, [])
+                    if stream != 'Other' and subject not in stream_subjects and subject not in self.optional_subjects:
+                        self.students_df.loc[idx, subject] = "N/A"
+                    else:
+                        self.students_df.loc[idx, subject] = 0
+    
+    # Handle string columns
+    for col in ['Name', 'Grade', 'Stream']:
+        if col in self.students_df.columns:
+            self.students_df[col] = self.students_df[col].fillna("").astype(str)
 
     def add_student(self, data):
         try:
@@ -810,28 +826,97 @@ class EnhancedStudentDataModel:
         return results
 
     def bulk_import_students(self, file):
-        """Bulk import students from CSV/Excel"""
+    """Bulk import students from CSV/Excel - FIXED VERSION"""
+    try:
+        # Check if file is empty
+        if file.size == 0:
+            return False, "Import failed: Uploaded file is empty", []
+        
+        # Reset file pointer
+        file.seek(0)
+        
+        # Try to read the file based on extension
         try:
             if file.name.endswith('.csv'):
                 new_data = pd.read_csv(file)
-            else:
+            elif file.name.endswith(('.xlsx', '.xls')):
                 new_data = pd.read_excel(file)
-            
-            success_count = 0
-            error_messages = []
-            
-            for _, row in new_data.iterrows():
+            else:
+                return False, "Import failed: Unsupported file format. Use CSV or Excel files", []
+        except Exception as read_error:
+            return False, f"Import failed: Cannot read file. Error: {str(read_error)}", []
+        
+        # Check if data was actually read
+        if new_data.empty:
+            return False, "Import failed: No data found in file or file is empty", []
+        
+        # Check for required columns
+        required_columns = ['StudentID', 'Name', 'Age', 'Grade', 'Stream']
+        missing_columns = [col for col in required_columns if col not in new_data.columns]
+        
+        if missing_columns:
+            return False, f"Import failed: Missing required columns: {', '.join(missing_columns)}", []
+        
+        success_count = 0
+        error_messages = []
+        processed_rows = []
+        
+        # Process each row
+        for idx, row in new_data.iterrows():
+            try:
+                # Convert row to dictionary
                 data_dict = row.to_dict()
+                
+                # Convert numeric fields
+                if 'StudentID' in data_dict:
+                    try:
+                        data_dict['StudentID'] = int(float(data_dict['StudentID']))
+                    except:
+                        error_messages.append(f"Row {idx + 2}: Invalid StudentID format")
+                        continue
+                
+                if 'Age' in data_dict:
+                    try:
+                        if pd.notna(data_dict['Age']):
+                            data_dict['Age'] = int(float(data_dict['Age']))
+                    except:
+                        error_messages.append(f"Row {idx + 2}: Invalid Age format")
+                        continue
+                
+                # Handle optional fields
+                for col in new_data.columns:
+                    if col not in data_dict or pd.isna(data_dict[col]):
+                        # Set default values for missing data
+                        if col in self._all_subjects():
+                            data_dict[col] = 0
+                        elif col in ['Name', 'Grade', 'Stream']:
+                            data_dict[col] = ""
+                        elif col == 'Age':
+                            data_dict[col] = 0
+                
+                # Add student
                 success, message = self.add_student(data_dict)
                 if success:
                     success_count += 1
+                    processed_rows.append(data_dict['StudentID'])
                 else:
-                    error_messages.append(f"Row {_ + 2}: {message}")
+                    error_messages.append(f"Row {idx + 2}: {message}")
+                    
+            except Exception as row_error:
+                error_messages.append(f"Row {idx + 2}: Unexpected error - {str(row_error)}")
+                continue
+        
+        # Summary message
+        if success_count > 0:
+            message = f"✅ Successfully imported {success_count} out of {len(new_data)} students"
+            if error_messages:
+                message += f" ({len(error_messages)} errors)"
+            return True, message, error_messages
+        else:
+            return False, f"❌ Failed to import any students. All {len(new_data)} rows had errors", error_messages
             
-            return True, f"Imported {success_count} students successfully. Errors: {len(error_messages)}", error_messages
-            
-        except Exception as e:
-            return False, f"Import failed: {str(e)}", []
+    except Exception as e:
+        return False, f"Import failed: {str(e)}", []
 
     def generate_email_report(self, student_id, recipient_email):
         """Generate and prepare email report"""
@@ -1086,25 +1171,49 @@ def manage_students(data_model):
             st.info("📝 No students found.")
     
     with tab4:
-        col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📥 Import Data")
         
-        with col1:
-            st.markdown("### 📥 Import Data")
-            uploaded_file = st.file_uploader("Upload CSV or Excel file", 
-                                           type=['csv', 'xlsx', 'xls'])
+        # Add import template download
+        st.markdown("**Download Import Template:**")
+        template_data = pd.DataFrame(columns=['StudentID', 'Name', 'Age', 'Grade', 'Stream'] + data_model._all_subjects())
+        template_csv = template_data.to_csv(index=False)
+        
+        st.download_button(
+            label="📋 Download Template CSV",
+            data=template_csv,
+            file_name="student_import_template.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+        
+        uploaded_file = st.file_uploader("Upload CSV or Excel file", 
+                                       type=['csv', 'xlsx', 'xls'],
+                                       help="File should contain columns: StudentID, Name, Age, Grade, Stream")
+        
+        if uploaded_file is not None:
+            # Show file info
+            file_size = uploaded_file.size / 1024  # Convert to KB
+            st.info(f"📄 File: {uploaded_file.name} ({file_size:.1f} KB)")
             
-            if uploaded_file is not None:
-                if st.button("📋 Import Students", use_container_width=True):
-                    with st.spinner("Importing data..."):
-                        success, message, errors = data_model.bulk_import_students(uploaded_file)
-                        if success:
-                            st.success(f"✅ {message}")
-                            if errors:
-                                with st.expander("View Import Errors"):
-                                    for error in errors:
-                                        st.error(error)
-                        else:
-                            st.error(f"❌ {message}")
+            if st.button("📋 Import Students", use_container_width=True):
+                with st.spinner("Importing data..."):
+                    success, message, errors = data_model.bulk_import_students(uploaded_file)
+                    
+                    if success:
+                        st.success(message)
+                        if errors:
+                            with st.expander("⚠️ View Import Errors"):
+                                for error in errors:
+                                    st.error(error)
+                    else:
+                        st.error(message)
+                        if errors:
+                            with st.expander("📋 View Detailed Errors"):
+                                for error in errors:
+                                    st.error(error)
         
         with col2:
             st.markdown("### 📤 Export Data")
@@ -2671,3 +2780,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
