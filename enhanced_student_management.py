@@ -1244,7 +1244,7 @@ def manage_students(data_model):
         else:
             st.info("📝 No students found.")
     
-   with tab4:
+    with tab4:
        col1, col2 = st.columns(2)
     
     with col1:
@@ -2930,7 +2930,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 
 
