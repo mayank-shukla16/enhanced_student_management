@@ -316,47 +316,48 @@ class EnhancedStudentDataModel:
         return sorted(subjects)
 
     def _expected_columns(self):
+        """Return list of all expected columns in the students dataframe"""
         return self.base_columns + self._all_subjects()
 
     def _ensure_columns_and_types(self):
+        """Ensure all expected columns exist and have correct data types"""
         expected = self._expected_columns()
-    
-    # Ensure all columns exist
-    for col in expected:
-        if col not in self.students_df.columns:
-            self.students_df[col] = 0 if col in self._all_subjects() else ""
-    
-    # Convert data types
-    if 'StudentID' in self.students_df.columns:
-        self.students_df['StudentID'] = pd.to_numeric(self.students_df['StudentID'], errors='coerce')
-        # Keep as float for now, convert to Int64 later
-        self.students_df['StudentID'] = self.students_df['StudentID'].fillna(0).astype('int64')
-    
-    if 'Age' in self.students_df.columns:
-        self.students_df['Age'] = pd.to_numeric(self.students_df['Age'], errors='coerce')
-        self.students_df['Age'] = self.students_df['Age'].fillna(0).astype('int64')
-    
-    # Handle subject marks
-    for subject in self._all_subjects():
-        if subject in self.students_df.columns:
-            # Convert to numeric, coerce errors to NaN
-            self.students_df[subject] = pd.to_numeric(self.students_df[subject], errors='coerce')
-            # Fill NaN with appropriate values
-            mask = self.students_df[subject].isna()
-            if mask.any():
-                # Check if subject should be N/A based on stream
-                for idx in self.students_df[mask].index:
-                    stream = self.students_df.loc[idx, 'Stream']
-                    stream_subjects = self.streams.get(stream, [])
-                    if stream != 'Other' and subject not in stream_subjects and subject not in self.optional_subjects:
-                        self.students_df.loc[idx, subject] = "N/A"
-                    else:
-                        self.students_df.loc[idx, subject] = 0
-    
-    # Handle string columns
-    for col in ['Name', 'Grade', 'Stream']:
-        if col in self.students_df.columns:
-            self.students_df[col] = self.students_df[col].fillna("").astype(str)
+        
+        # Ensure all columns exist
+        for col in expected:
+            if col not in self.students_df.columns:
+                self.students_df[col] = 0 if col in self._all_subjects() else ""
+        
+        # Convert data types
+        if 'StudentID' in self.students_df.columns:
+            self.students_df['StudentID'] = pd.to_numeric(self.students_df['StudentID'], errors='coerce')
+            self.students_df['StudentID'] = self.students_df['StudentID'].fillna(0).astype('int64')
+        
+        if 'Age' in self.students_df.columns:
+            self.students_df['Age'] = pd.to_numeric(self.students_df['Age'], errors='coerce')
+            self.students_df['Age'] = self.students_df['Age'].fillna(0).astype('int64')
+        
+        # Handle subject marks
+        for subject in self._all_subjects():
+            if subject in self.students_df.columns:
+                # Convert to numeric, coerce errors to NaN
+                self.students_df[subject] = pd.to_numeric(self.students_df[subject], errors='coerce')
+                # Fill NaN with appropriate values
+                mask = self.students_df[subject].isna()
+                if mask.any():
+                    # Check if subject should be N/A based on stream
+                    for idx in self.students_df[mask].index:
+                        stream = self.students_df.loc[idx, 'Stream']
+                        stream_subjects = self.streams.get(stream, [])
+                        if stream != 'Other' and subject not in stream_subjects and subject not in self.optional_subjects:
+                            self.students_df.loc[idx, subject] = "N/A"
+                        else:
+                            self.students_df.loc[idx, subject] = 0
+        
+        # Handle string columns
+        for col in ['Name', 'Grade', 'Stream']:
+            if col in self.students_df.columns:
+                self.students_df[col] = self.students_df[col].fillna("").astype(str)
 
     def add_student(self, data):
         try:
@@ -2780,6 +2781,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
