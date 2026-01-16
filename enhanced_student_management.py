@@ -1245,7 +1245,7 @@ def manage_students(data_model):
             st.info("📝 No students found.")
     
    with tab4:
-    col1, col2 = st.columns(2)
+       col1, col2 = st.columns(2)
     
     with col1:
         st.markdown("### 📥 Import Data")
@@ -2930,6 +2930,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
