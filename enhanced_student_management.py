@@ -547,7 +547,7 @@ class EnhancedStudentDataModel:
             return False, f"Error loading file: {e}"
 
     def get_individual_report(self, student_id):
-        """FIXED: Proper individual report generation"""
+        """FIXED: Proper individual report generation with grouped categories"""
         try:
             sid = int(student_id)
         except:
@@ -560,45 +560,55 @@ class EnhancedStudentDataModel:
             return None, "Student not found."
         
         stream = student_row['Stream'].iloc[0]
-        subjects = self.streams.get(stream, [])
+        subjects = self.get_subjects_for_stream(stream)
         
-        # Calculate total and percentage - FIXED LOGIC
-        relevant_subjects = []
-        total_marks = 0
-        
-        for subject in subjects:
-            mark = student_row[subject].iloc[0]
-            if mark != "N/A" and pd.notna(mark) and str(mark).isdigit():
-                try:
-                    mark_value = int(mark)
-                    total_marks += mark_value
-                    relevant_subjects.append(subject)
-                except:
-                    continue
-        
-        total_possible = len(relevant_subjects) * 100
-        percentage = (total_marks / total_possible * 100) if total_possible > 0 else 0.0
-        
-        # Prepare report data - FIXED: Handle all data types properly
+        # Prepare report data
         student_dict = {}
-        for col in self._expected_columns():
+        for col in self.students_df.columns:
             val = student_row.iloc[0][col]
             if pd.isna(val):
-                student_dict[col] = "" if col in ['Name', 'Grade', 'Stream'] else 0
+                student_dict[col] = "" if col in ['Name', 'Grade', 'Stream', 'Section'] else 0
             else:
-                if col in ['StudentID', 'Age']:
-                    try:
-                        student_dict[col] = int(val)
-                    except:
-                        student_dict[col] = 0
-                elif col in self._all_subjects():
-                    student_dict[col] = val
-                else:
-                    student_dict[col] = str(val)
+                student_dict[col] = val
+
+        # Categorize marks for the report
+        categories = {
+            'Internal Assessment': {},
+            'ASSET Performance': {},
+            'NGERT Assessment': {}
+        }
         
-        student_dict['Total'] = total_marks
-        student_dict['Percentage'] = round(percentage, 2)
-        student_dict['Subjects_Count'] = len(relevant_subjects)
+        total_internal = 0
+        internal_count = 0
+        
+        for col in self.students_df.columns:
+            if col in self.base_columns or col in self.attendance_columns or col == 'StudentID':
+                continue
+                
+            mark = student_row[col].iloc[0]
+            if mark == "N/A":
+                continue
+                
+            col_upper = col.upper()
+            if "ASSET" in col_upper:
+                categories['ASSET Performance'][col] = mark
+            elif "NGERT" in col_upper:
+                categories['NGERT Assessment'][col] = mark
+            elif col in self._all_subjects():
+                # Only include in internal if it's a standard subject for the stream or optional
+                if col in subjects or col in self.optional_subjects:
+                    categories['Internal Assessment'][col] = mark
+                    if isinstance(mark, (int, float, complex)) or (isinstance(mark, str) and mark.isdigit()):
+                        total_internal += int(mark)
+                        internal_count += 1
+            else:
+                # Catch-all for other dynamic columns
+                categories['Internal Assessment'][col] = mark
+
+        student_dict['Categories'] = categories
+        student_dict['Total_Internal'] = total_internal
+        student_dict['Percentage_Internal'] = (total_internal / (internal_count * 100) * 100) if internal_count > 0 else 0.0
+        student_dict['Internal_Count'] = internal_count
         
         return student_dict, "Report generated successfully."
 
@@ -636,16 +646,20 @@ class EnhancedStudentDataModel:
         all_marks = []
         for _, student in self.students_df.iterrows():
             stream = student['Stream']
-            subjects = self.streams.get(stream, [])
+            subjects = self.get_subjects_for_stream(stream)
             total_marks = 0
+            count = 0
             for subject in subjects:
-                mark = student[subject]
-                if mark != "N/A" and pd.notna(mark) and str(mark).isdigit():
-                    try:
-                        total_marks += int(mark)
-                    except:
-                        pass
-            all_marks.append(total_marks)
+                if subject in student:
+                    mark = student[subject]
+                    if mark != "N/A" and pd.notna(mark) and str(mark).isdigit():
+                        try:
+                            total_marks += int(mark)
+                            count += 1
+                        except:
+                            pass
+            if count > 0:
+                all_marks.append(total_marks)
         
         highest_marks = max(all_marks) if all_marks else 0
         lowest_marks = min(all_marks) if all_marks else 0
@@ -1288,21 +1302,6 @@ def manage_students(data_model):
         # 1. TEMPLATE DOWNLOAD
         col_down, col_up = st.columns([1, 2])
         with col_down:
-            
-            st.download_button(
-                label="📋 Download Template CSV",
-                data=template_csv,
-                file_name="student_import_template.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-            
-    with tab4:
-        st.markdown("### 📥 Import Data")
-        
-        # 1. TEMPLATE DOWNLOAD
-        col_down, col_up = st.columns([1, 2])
-        with col_down:
             st.markdown("**1. Download Template**")
             template_data = pd.DataFrame(columns=['StudentID', 'Name', 'Age', 'Grade', 'Section', 'Stream'] + data_model._all_subjects())
             template_csv = template_data.to_csv(index=False)
@@ -1322,7 +1321,8 @@ def manage_students(data_model):
         merge_data = st.checkbox(
             "✅ **Merge with existing data** (Update/Add columns to existing students)", 
             value=False,
-            help="Check this if you are uploading a second file (like ASSET or Internal marks) and want to combine it with existing students."
+            help="Check this if you are uploading a second file (like ASSET or Internal marks) and want to combine it with existing students.",
+            key="merge_checkbox_final" # Unique key to prevent state issues
         )
         
         if merge_data:
@@ -1336,7 +1336,7 @@ def manage_students(data_model):
             "Choose CSV or Excel file", 
             type=['csv', 'xlsx', 'xls'],
             help="Required: 'StudentID' column. All other columns are optional.",
-            key=f"file_uploader_{datetime.now().strftime('%H%M%S')}" # Dynamic key to force refresh
+            key=f"file_uploader_v2" # Stable key
         )
         
         if uploaded_file is not None:
@@ -1565,37 +1565,56 @@ def show_individual_report(data_model):
                     </div>
                     """, unsafe_allow_html=True)
                 
-                # Subject-wise performance
-                st.markdown("### 📚 Subject-wise Performance")
+                # Categorized performance sections
+                categories = report.get('Categories', {})
                 
-                stream = report['Stream']
-                subjects = data_model.get_subjects_for_stream(stream)
-                
-                if not subjects:
-                    st.warning("⚠️ No subjects found for this stream.")
-                    cols = []
-                else:
-                    cols = st.columns(len(subjects))
-                for idx, subject in enumerate(subjects):
-                    mark = report.get(subject, 0)
-                    if mark == "N/A":
-                        continue
-                    
-                    with cols[idx % len(cols)]:
-                        # Color code based on marks
-                        color = "#00b894" if mark >= 80 else "#fdcb6e" if mark >= 60 else "#ff6b6b"
-                        
-                        st.markdown(f"""
-                        <div style='text-align: center; padding: 1rem; border-radius: 10px; 
-                                    background: linear-gradient(135deg, {color}22 0%, {color}11 100%);
-                                    border: 2px solid {color}44;'>
-                            <h4 style='margin: 0;'>{subject}</h4>
-                            <h2 style='margin: 0.5rem 0; color: {color};'>{mark}/100</h2>
-                            <div style='height: 10px; background: #eee; border-radius: 5px; overflow: hidden;'>
-                                <div style='width: {mark}%; height: 100%; background: {color};'></div>
+                # Internal Assessment Group
+                st.markdown("### 🏠 Internal Assessment (Main Subjects)")
+                internal_data = categories.get('Internal Assessment', {})
+                if internal_data:
+                    cols = st.columns(min(len(internal_data), 5))
+                    for idx, (subject, mark) in enumerate(internal_data.items()):
+                        with cols[idx % len(cols)]:
+                            color = "#00b894" if mark >= 80 else "#fdcb6e" if mark >= 60 else "#ff6b6b"
+                            st.markdown(f"""
+                            <div style='text-align: center; padding: 0.8rem; border-radius: 10px; background: {color}11; border: 1px solid {color}33;'>
+                                <p style='margin: 0; font-size: 0.8rem;'>{subject}</p>
+                                <h3 style='margin: 0.3rem 0; color: {color};'>{mark}/100</h3>
                             </div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                            """, unsafe_allow_html=True)
+                else:
+                    st.info("No internal assessment data available.")
+
+                col_e1, col_e2 = st.columns(2)
+                
+                with col_e1:
+                    st.markdown("### 🎯 ASSET Performance")
+                    asset_data = categories.get('ASSET Performance', {})
+                    if asset_data:
+                        for subject, mark in asset_data.items():
+                            # ASSET marks usually out of 9 or 100, assuming out of 9 if <= 9
+                            max_val = 9 if mark <= 9 else 100
+                            pct = (mark / max_val * 100)
+                            color = "#4834d4"
+                            st.markdown(f"**{subject}: {mark}/{max_val}**")
+                            st.progress(pct/100)
+                    else:
+                        st.info("No ASSET evaluation data.")
+
+                with col_e2:
+                    st.markdown("### 📊 NGERT Assessment")
+                    ngert_data = categories.get('NGERT Assessment', {})
+                    if ngert_data:
+                        for subject, mark in ngert_data.items():
+                            # NGERT marks are out of 9
+                            pct = (mark / 9 * 100) if mark <= 9 else (mark / 100 * 100)
+                            color = "#eb4d4b"
+                            st.markdown(f"**{subject}: {mark}/9**")
+                            st.progress(pct/100)
+                    else:
+                        st.info("No NGERT assessment data.")
+                
+                st.markdown("---")
                 
                 # Predictive Analytics
                 if prediction:
