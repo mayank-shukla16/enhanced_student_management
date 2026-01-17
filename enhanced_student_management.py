@@ -1275,129 +1275,56 @@ def manage_students(data_model):
         else:
             st.info("📝 No students found.")
     
+    
     with tab4:
-       col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("### 📥 Import Data")
+        col1, col2 = st.columns(2)
         
-        # Add import template download
-        st.markdown("**Download Import Template:**")
-        template_data = pd.DataFrame(columns=['StudentID', 'Name', 'Age', 'Grade', 'Stream'] + data_model._all_subjects())
-        # Add sample data
-        sample_row = {
-            'StudentID': 1001,
-            'Name': 'John Doe',
-            'Age': 16,
-            'Grade': '11th',
-            'Stream': 'Science',
-            'Mathematics': 85,
-            'Physics': 78,
-            'Chemistry': 92,
-            'Biology': 88,
-            'English': 90,
-            'Computer Science': 0,  # Use 0 or empty for not applicable
-            'AI': '',  # Empty for not applicable
-            'Mass Media': 'N/A',  # N/A for not applicable
-            'Physical Education': 95
-        }
-        template_data = pd.DataFrame([sample_row])
-        template_csv = template_data.to_csv(index=False)
-        
-        st.download_button(
-            label="📋 Download Template CSV",
-            data=template_csv,
-            file_name="student_import_template.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-        
-        uploaded_file = st.file_uploader("Upload CSV or Excel file", 
-                                       type=['csv', 'xlsx', 'xls'],
-                                       help="File should contain columns: StudentID, Name, Age, Grade, Stream. Marks should be numbers (0-100) or N/A")
-        
-        if uploaded_file is not None:
-            # Show file preview
-            try:
-                if uploaded_file.name.endswith('.csv'):
-                    preview_df = pd.read_csv(uploaded_file, nrows=5)
-                else:
-                    preview_df = pd.read_excel(uploaded_file, nrows=5)
-                
-                st.markdown("#### 📋 File Preview:")
-                st.dataframe(preview_df)
-                
-                # Show column info
-                st.markdown("#### 🔍 Detected Columns:")
-                st.write(f"Total columns: {len(preview_df.columns)}")
-                st.write("Columns found:", list(preview_df.columns))
-                
-            except Exception as e:
-                st.warning(f"Cannot preview file: {e}")
+        with col1:
+            st.markdown("### 📥 Import Data")
             
-            if st.button("📋 Import Students", use_container_width=True):
-                with st.spinner("Importing data..."):
-                    success, message, errors = data_model.bulk_import_students(uploaded_file)
-                    
-                    if success:
-                        st.success(message)
-                        # Show imported data
-                        if not data_model.students_df.empty:
-                            st.markdown("#### ✅ Imported Students Preview:")
-                            recent_students = data_model.students_df.tail(5)
-                            st.dataframe(recent_students[['StudentID', 'Name', 'Stream'] + data_model._all_subjects()])
-                    else:
-                        st.error(message)
-                    
-                    if errors:
-                        with st.expander("⚠️ View Import Errors"):
-                            for error in errors:
-                                st.error(error)
-    
-    with col1:
-        st.markdown("### 📥 Import Data")
-        
-        # Add import template download
-        st.markdown("**Download Import Template:**")
-        template_data = pd.DataFrame(columns=['StudentID', 'Name', 'Age', 'Grade', 'Stream'] + data_model._all_subjects())
-        template_csv = template_data.to_csv(index=False)
-        
-        st.download_button(
-            label="📋 Download Template CSV",
-            data=template_csv,
-            file_name="student_import_template.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-        
-        uploaded_file = st.file_uploader("Upload CSV or Excel file", 
-                                       type=['csv', 'xlsx', 'xls'],
-                                       help="File should contain columns: StudentID, Name, Age, Grade, Stream")
-        
-        if uploaded_file is not None:
-            # Show file info
-            file_size = uploaded_file.size / 1024  # Convert to KB
-            st.info(f"📄 File: {uploaded_file.name} ({file_size:.1f} KB)")
+            # Add import template download
+            st.markdown("**Download Import Template:**")
+            template_data = pd.DataFrame(columns=['StudentID', 'Name', 'Age', 'Grade', 'Section', 'Stream'] + data_model._all_subjects())
+            template_csv = template_data.to_csv(index=False)
             
-            # Merge option
-            merge_data = st.checkbox("Merge with existing data (Update existing Student IDs)")
+            st.download_button(
+                label="📋 Download Template CSV",
+                data=template_csv,
+                file_name="student_import_template.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
             
-            if st.button("📋 Import Students", use_container_width=True):
-                with st.spinner("Importing data..."):
-                    success, message, errors = data_model.bulk_import_students(uploaded_file, merge=merge_data)
-                    
-                    if success:
-                        st.success(message)
-                        if errors:
-                            with st.expander("⚠️ View Import Errors"):
-                                for error in errors:
-                                    st.error(error)
-                    else:
-                        st.error(message)
-                        if errors:
-                            with st.expander("📋 View Detailed Errors"):
-                                for error in errors:
-                                    st.error(error)
+            uploaded_file = st.file_uploader("Upload CSV or Excel file", 
+                                           type=['csv', 'xlsx', 'xls'],
+                                           help="File should contain StudentID column. Use merge to add subjects to existing students.",
+                                           key="import_file_uploader")
+            
+            if uploaded_file is not None:
+                # Show file info
+                file_size = uploaded_file.size / 1024  # Convert to KB
+                st.info(f"📄 File: {uploaded_file.name} ({file_size:.1f} KB)")
+                
+                # Merge option - CRITICAL FOR MULTI-FILE IMPORT
+                merge_data = st.checkbox("✅ Merge with existing data (Update/add columns to existing Student IDs)", 
+                                        help="Check this to add new subjects/marks to existing students")
+                
+                if st.button("📋 Import Students", use_container_width=True):
+                    with st.spinner("Importing data..."):
+                        success, message, errors = data_model.bulk_import_students(uploaded_file, merge=merge_data)
+                        
+                        if success:
+                            st.success(message)
+                            if errors:
+                                with st.expander("⚠️ View Import Errors"):
+                                    for error in errors:
+                                        st.error(error)
+                        else:
+                            st.error(message)
+                            if errors:
+                                with st.expander("📋 View Detailed Errors"):
+                                    for error in errors:
+                                        st.error(error)
         
         with col2:
             st.markdown("### 📤 Export Data")
