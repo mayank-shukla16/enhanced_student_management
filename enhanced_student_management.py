@@ -2595,39 +2595,38 @@ def smart_alerts(data_model):
             # Format timestamp
             timestamp = alert['timestamp'].strftime('%Y-%m-%d %H:%M')
             
-            # Create columns for alert display
-            col_alert, col_button = st.columns([4, 1])
-            
-            with col_alert:
-                st.markdown(f"""
-                <div class='{card_class}'>
-                    <div style='display: flex; justify-content: space-between; align-items: start;'>
-                        <div style='flex: 1;'>
-                            <div style='display: flex; align-items: center; margin-bottom: 0.5rem;'>
-                                <span style='font-size: 1.2rem; margin-right: 0.5rem;'>{icon}</span>
-                                <strong>{alert['type']} Alert</strong>
-                                <span style='margin-left: 1rem; padding: 0.2rem 0.5rem; 
-                                          background: rgba(255,255,255,0.2); border-radius: 10px;
-                                          font-size: 0.8rem;'>
-                                    {alert['level']} Priority
-                                </span>
-                            </div>
-                            <p style='margin: 0.5rem 0;'>{alert['message']}</p>
+            st.markdown(f"""
+            <div class='{card_class}'>
+                <div style='display: flex; justify-content: space-between; align-items: start;'>
+                    <div style='flex: 1;'>
+                        <div style='display: flex; align-items: center; margin-bottom: 0.5rem;'>
+                            <span style='font-size: 1.2rem; margin-right: 0.5rem;'>{icon}</span>
+                            <strong>{alert['type']} Alert</strong>
+                            <span style='margin-left: 1rem; padding: 0.2rem 0.5rem; 
+                                      background: rgba(255,255,255,0.2); border-radius: 10px;
+                                      font-size: 0.8rem;'>
+                                {alert['level']} Priority
+                            </span>
                         </div>
+                        <p style='margin: 0.5rem 0;'>{alert['message']}</p>
                     </div>
-                    <div style='font-size: 0.8rem; opacity: 0.8; text-align: right;'>
+                </div>
+                <div style='display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;'>
+                    <div style='font-size: 0.8rem; opacity: 0.8;'>
                         {timestamp}
                     </div>
                 </div>
-                """, unsafe_allow_html=True)
+            </div>
+            """, unsafe_allow_html=True)
             
-            with col_button:
-                # Streamlit button for navigation
-                if st.button(f"👁️ View", key=f"view_alert_{idx}", use_container_width=True):
-                    # Set session state to navigate to individual report
-                    st.session_state['selected_page'] = 'Individual Report'
-                    st.session_state['selected_student_id'] = alert['student_id']
-                    st.rerun()
+            # View button below the card
+            if st.button(f"👁️ View Student Report", key=f"view_alert_{idx}", use_container_width=False):
+                # Set session state to navigate to individual report
+                st.session_state['selected_page'] = 'Individual Report'
+                st.session_state['selected_student_id'] = alert['student_id']
+                st.rerun()
+            
+            st.markdown("<br>", unsafe_allow_html=True)  # Add spacing between alerts
         
         # Alert statistics
         st.markdown("---")
@@ -3013,3 +3012,11 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
