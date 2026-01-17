@@ -909,6 +909,118 @@ class EnhancedStudentDataModel:
         return results
 
     def bulk_import_students(self, file, merge=False):
+        """
+        Bulk import students from CSV/Excel - FLEXIBLE FORMAT
+        ONLY REQUIRES: StudentID column
+        ALL OTHER COLUMNS ARE OPTIONAL - will use smart defaults
+        """
+        try:
+            # Read file
+            file.seek(0)
+            if file.name.endswith('.csv'):
+                new_data = pd.read_csv(file, keep_default_na=False)
+            else:
+                new_data = pd.read_excel(file, keep_default_na=False)
+            
+            if new_data.empty:
+                return False, "File is empty.", []
+            
+            # CRITICAL: Only require StudentID column
+            if 'StudentID' not in new_data.columns and 'Student ID' not in new_data.columns and 'student_id' not in new_data.columns:
+                return False, "❌ CSV must contain 'StudentID' column (or 'Student ID' or 'student_id')", []
+            
+            # Normalize StudentID column name
+            for col in new_data.columns:
+                if col.lower().replace(' ', '').replace('_', '') == 'studentid':
+                    new_data.rename(columns={col: 'StudentID'}, inplace=True)
+                    break
+            
+            # Column Aliasing Mapping for common variations
+            ALIAS_MAPPING = {
+                'Math': 'Mathematics', 'Maths': 'Mathematics',
+                'Phy': 'Physics', 'Physics Theory': 'Physics',
+                'Chem': 'Chemistry', 'Chemistry Theory': 'Chemistry',
+                'Bio': 'Biology', 'Biology Theory': 'Biology',
+                'Eng': 'English', 'English Core': 'English',
+                'CS': 'Computer Science', 'Comp Sci': 'Computer Science', 'Computer': 'Computer Science',
+                'Acc': 'Accountancy', 'Accounts': 'Accountancy',
+                'Eco': 'Economics', 'Econ': 'Economics',
+                'BS': 'Business Studies', 'Business': 'Business Studies',
+                'PE': 'Physical Education', 'Phys Ed': 'Physical Education',
+            }
+            
+            # Apply renaming (case-insensitive lookup)
+            new_cols = []
+            for col in new_data.columns:
+                col_lower = col.strip().lower()
+                mapped_col = col.strip()  # Default to original (stripped)
+                for alias, target in ALIAS_MAPPING.items():
+                    if alias.lower() == col_lower:
+                        mapped_col = target
+                        break
+                new_cols.append(mapped_col)
+            
+            new_data.columns = new_cols
+            
+            success_count = 0
+            error_messages = []
+            
+            for idx, row in new_data.iterrows():
+                try:
+                    data_dict = row.to_dict()
+                    # Clean keys and values
+                    cleaned_data = {}
+                    for k, v in data_dict.items():
+                        key = k.strip()
+                        # Strip whitespace from string values
+                        if isinstance(v, str):
+                            value = v.strip()
+                        else:
+                            value = v
+                        cleaned_data[key] = value
+                    
+                    # Normalize Stream name (capitalize first letter)
+                    if 'Stream' in cleaned_data and isinstance(cleaned_data['Stream'], str):
+                        cleaned_data['Stream'] = cleaned_data['Stream'].capitalize()
+                    
+                    # Ensure properly typed ID
+                    try:
+                        cleaned_data['StudentID'] = int(float(cleaned_data['StudentID']))
+                    except:
+                        error_messages.append(f"Row {idx+2}: Invalid StudentID")
+                        continue
+                    
+                    # FLEXIBLE: Add smart defaults for missing required fields
+                    if 'Name' not in cleaned_data or not cleaned_data.get('Name'):
+                        cleaned_data['Name'] = f"Student {cleaned_data['StudentID']}"
+                    
+                    if 'Age' not in cleaned_data or not cleaned_data.get('Age'):
+                        cleaned_data['Age'] = 16  # Default age
+                    
+                    if 'Grade' not in cleaned_data or not cleaned_data.get('Grade'):
+                        cleaned_data['Grade'] = "12th"  # Default grade
+                    
+                    if 'Section' not in cleaned_data or not cleaned_data.get('Section'):
+                        cleaned_data['Section'] = "A"  # Default section
+                    
+                    if 'Stream' not in cleaned_data or not cleaned_data.get('Stream'):
+                        cleaned_data['Stream'] = "Other"  # Default stream
+                    
+                    # Add/Merge
+                    success, message = self.add_student(cleaned_data, merge=merge)
+                    if success:
+                        success_count += 1
+                    else:
+                        error_messages.append(f"Row {idx+2}: {message}")
+                        
+                except Exception as e:
+                    error_messages.append(f"Row {idx+2}: Unexpected error: {e}")
+            
+            if success_count > 0:
+                msg = f"Successfully processed {success_count} students."
+                if merge:
+                    msg += " (Merged with existing data)"
+                return True, msg, error_messages
         """Bulk import students from CSV/Excel"""
         try:
             # Check if file is empty
@@ -1295,30 +1407,43 @@ def manage_students(data_model):
                 use_container_width=True
             )
             
-            uploaded_file = st.file_uploader("Upload CSV or Excel file", 
-                                           type=['csv', 'xlsx', 'xls'],
-                                           help="File should contain StudentID column. Use merge to add subjects to existing students.",
-                                           key="import_file_uploader")
+            st.markdown("---")
+            
+            # MERGE OPTION - SHOW FIRST FOR VISIBILITY
+            st.markdown("### 📥 Upload File")
+            merge_data = st.checkbox(
+                "✅ Merge with existing data", 
+                value=False,
+                help="Check this BEFORE uploading if you want to add columns to existing students (for multi-file imports)"
+            )
+            
+            if merge_data:
+                st.info("💡 Merge mode: Will update existing StudentIDs with new columns")
+            else:
+                st.info("📝 Normal mode: Will add new students or replace existing ones")
+            
+            uploaded_file = st.file_uploader(
+                "Choose CSV or Excel file", 
+                type=['csv', 'xlsx', 'xls'],
+                help="Only StudentID column is required! All other columns are flexible.",
+                key="file_upload_input"
+            )
             
             if uploaded_file is not None:
                 # Show file info
                 file_size = uploaded_file.size / 1024  # Convert to KB
-                st.info(f"📄 File: {uploaded_file.name} ({file_size:.1f} KB)")
+                st.success(f"📄 Uploaded: {uploaded_file.name} ({file_size:.1f} KB)")
                 
-                # Merge option - CRITICAL FOR MULTI-FILE IMPORT
-                merge_data = st.checkbox("✅ Merge with existing data (Update/add columns to existing Student IDs)", 
-                                        help="Check this to add new subjects/marks to existing students")
-                
-                if st.button("📋 Import Students", use_container_width=True):
+                if st.button("📋 Import Students", use_container_width=True, type="primary"):
                     with st.spinner("Importing data..."):
                         success, message, errors = data_model.bulk_import_students(uploaded_file, merge=merge_data)
                         
                         if success:
                             st.success(message)
                             if errors:
-                                with st.expander("⚠️ View Import Errors"):
+                                with st.expander("⚠️ View Import Warnings"):
                                     for error in errors:
-                                        st.error(error)
+                                        st.warning(error)
                         else:
                             st.error(message)
                             if errors:
