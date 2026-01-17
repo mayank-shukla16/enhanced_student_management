@@ -1283,13 +1283,27 @@ def manage_students(data_model):
     
     
     with tab4:
-        col1, col2 = st.columns(2)
+        st.markdown("### 📥 Import Data")
         
-        with col1:
-            st.markdown("### 📥 Import Data")
+        # 1. TEMPLATE DOWNLOAD
+        col_down, col_up = st.columns([1, 2])
+        with col_down:
             
-            # Add import template download
-            st.markdown("**Download Import Template:**")
+            st.download_button(
+                label="📋 Download Template CSV",
+                data=template_csv,
+                file_name="student_import_template.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+            
+    with tab4:
+        st.markdown("### 📥 Import Data")
+        
+        # 1. TEMPLATE DOWNLOAD
+        col_down, col_up = st.columns([1, 2])
+        with col_down:
+            st.markdown("**1. Download Template**")
             template_data = pd.DataFrame(columns=['StudentID', 'Name', 'Age', 'Grade', 'Section', 'Stream'] + data_model._all_subjects())
             template_csv = template_data.to_csv(index=False)
             
@@ -1300,64 +1314,85 @@ def manage_students(data_model):
                 mime="text/csv",
                 use_container_width=True
             )
-            
-            st.markdown("---")
-            
-            # MERGE OPTION - SHOW FIRST FOR VISIBILITY
-            st.markdown("### 📥 Upload File")
-            merge_data = st.checkbox(
-                "✅ Merge with existing data", 
-                value=False,
-                help="Check this BEFORE uploading if you want to add columns to existing students (for multi-file imports)"
-            )
-            
-            if merge_data:
-                st.info("💡 Merge mode: Will update existing StudentIDs with new columns")
-            else:
-                st.info("📝 Normal mode: Will add new students or replace existing ones")
-            
-            uploaded_file = st.file_uploader(
-                "Choose CSV or Excel file", 
-                type=['csv', 'xlsx', 'xls'],
-                help="Only StudentID column is required! All other columns are flexible.",
-                key="file_upload_input"
-            )
-            
-            if uploaded_file is not None:
-                # Show file info
-                file_size = uploaded_file.size / 1024  # Convert to KB
-                st.success(f"📄 Uploaded: {uploaded_file.name} ({file_size:.1f} KB)")
-                
-                if st.button("📋 Import Students", use_container_width=True, type="primary"):
-                    with st.spinner("Importing data..."):
-                        success, message, errors = data_model.bulk_import_students(uploaded_file, merge=merge_data)
-                        
-                        if success:
-                            st.success(message)
-                            if errors:
-                                with st.expander("⚠️ View Import Warnings"):
-                                    for error in errors:
-                                        st.warning(error)
-                        else:
-                            st.error(message)
-                            if errors:
-                                with st.expander("📋 View Detailed Errors"):
-                                    for error in errors:
-                                        st.error(error)
+
+        st.markdown("---")
+
+        # 2. MERGE OPTION (ALWAYS VISIBLE)
+        st.markdown("**2. Import Options**")
+        merge_data = st.checkbox(
+            "✅ **Merge with existing data** (Update/Add columns to existing students)", 
+            value=False,
+            help="Check this if you are uploading a second file (like ASSET or Internal marks) and want to combine it with existing students."
+        )
         
+        if merge_data:
+            st.success("💡 **Merge Mode Active**: New columns/marks will be ADDED to existing StudentIDs.")
+        else:
+            st.info("📝 **Normal Mode**: New students will be added. Existing IDs might be skipped or overwritten depending on conflict.")
+
+        # 3. FILE UPLOAD
+        st.markdown("**3. Upload File**")
+        uploaded_file = st.file_uploader(
+            "Choose CSV or Excel file", 
+            type=['csv', 'xlsx', 'xls'],
+            help="Required: 'StudentID' column. All other columns are optional.",
+            key=f"file_uploader_{datetime.now().strftime('%H%M%S')}" # Dynamic key to force refresh
+        )
+        
+        if uploaded_file is not None:
+            file_size = uploaded_file.size / 1024
+            st.info(f"📄 Accepted: {uploaded_file.name} ({file_size:.1f} KB)")
+            
+            if st.button("🚀 Start Import", use_container_width=True, type="primary"):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                with st.spinner("Processing file..."):
+                    status_text.text("Reading file...")
+                    progress_bar.progress(20)
+                    
+                    success, message, errors = data_model.bulk_import_students(uploaded_file, merge=merge_data)
+                    
+                    progress_bar.progress(100)
+                    status_text.text("Done!")
+                    
+                    if success:
+                        st.balloons()
+                        st.success(f"✅ {message}")
+                        if errors:
+                            with st.expander("⚠️ View Process Warnings"):
+                                for error in errors:
+                                    st.warning(error)
+                        
+                        # Show preview of data
+                        st.markdown("### 📊 Current Data Snapshot")
+                        st.dataframe(data_model.students_df.tail(5))
+                        
+                    else:
+                        st.error(f"❌ {message}")
+                        if errors:
+                            with st.expander("📋 View Error Details"):
+                                for error in errors:
+                                    st.error(error)
+        
+        st.markdown("---")
+        st.markdown("### 📤 Export Data")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            export_format = st.radio("Format", ["CSV", "Excel"])
         with col2:
-            st.markdown("### 📤 Export Data")
-            
-            export_format = st.radio("Export Format", ["CSV", "Excel"])
-            
+            st.write("")
+            st.write("")
             if st.button("💾 Export All Data", use_container_width=True):
                 if not data_model.students_df.empty:
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                     if export_format == "CSV":
                         csv = data_model.students_df.to_csv(index=False)
                         st.download_button(
                             label="📥 Download CSV",
                             data=csv,
-                            file_name=f"students_{datetime.now().strftime('%Y%m%d')}.csv",
+                            file_name=f"students_export_{timestamp}.csv",
                             mime="text/csv",
                             use_container_width=True
                         )
@@ -1369,10 +1404,12 @@ def manage_students(data_model):
                         st.download_button(
                             label="📥 Download Excel",
                             data=output,
-                            file_name=f"students_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                            file_name=f"students_export_{timestamp}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True
                         )
+                else:
+                    st.warning("No data to export!")
                 else:
                     st.warning("No data to export")
 
