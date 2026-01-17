@@ -763,20 +763,32 @@ class EnhancedStudentDataModel:
         stream = student_row['Stream'].iloc[0]
         subjects = self.streams.get(stream, [])
         
-        # Calculate current performance
+        
+        # Calculate current performance (dynamic detection)
         current_marks = {}
         total_marks = 0
         subject_count = 0
         
-        for subject in subjects:
-            mark = student_row[subject].iloc[0]
-            if mark != "N/A" and pd.notna(mark) and str(mark).isdigit():
-                try:
-                    current_marks[subject] = int(mark)
-                    total_marks += int(mark)
-                    subject_count += 1
-                except:
-                    continue
+        # Identify internal subjects dynamically
+        internal_subjects = [
+            col for col in self.students_df.columns 
+            if col not in self.base_columns 
+            and col not in self.attendance_columns 
+            and col != 'StudentID'
+            and not col.startswith(('Asset_', 'Ngert_'))
+        ]
+        
+        for subject in internal_subjects:
+            if subject in student_row.columns:
+                mark = student_row[subject].iloc[0]
+                if pd.notna(mark) and mark != "N/A":
+                    try:
+                        val = float(mark)
+                        current_marks[subject] = val
+                        total_marks += val
+                        subject_count += 1
+                    except (ValueError, TypeError):
+                        continue
         
         if subject_count == 0:
             return None, "No marks data available for prediction"
@@ -1443,82 +1455,90 @@ def advanced_search(data_model):
             sort_by = st.selectbox("Sort By", ["Name", "StudentID", "Stream", "Grade", "Average Marks"])
             sort_order = st.radio("Order", ["Ascending", "Descending"])
         
-        if st.form_submit_button("🔍 Search", width='stretch'):
-            filters = {
-                'name': name_filter if name_filter else None,
-                'stream': stream_filter if stream_filter != "All" else None,
-                'grade': grade_filter if grade_filter else None,
-                'min_marks': min_marks_filter if min_marks_filter > 0 else None
-            }
+        search_clicked = st.form_submit_button("🔍 Search", width='stretch')
+
+    if search_clicked:
+        filters = {
+            'name': name_filter if name_filter else None,
+            'stream': stream_filter if stream_filter != "All" else None,
+            'grade': grade_filter if grade_filter else None,
+            'min_marks': min_marks_filter if min_marks_filter > 0 else None
+        }
+        
+        results = data_model.advanced_search(filters)
+        st.session_state['search_results'] = results
+        st.session_state['search_filters'] = filters
+    
+    # Display results from session state if they exist
+    if 'search_results' in st.session_state and not st.session_state['search_results'].empty:
+        results = st.session_state['search_results']
             
-            results = data_model.advanced_search(filters)
+        if not results.empty:
+        # Calculate average marks for each student
+        def calculate_avg_marks(row):
+            # Use the same logic as the data model for consistency
+            valid_subjects = [
+                col for col in row.index 
+                if col in data_model._all_subjects()
+                and not col.startswith(('Asset_', 'Ngert_'))
+            ]
             
-            if not results.empty:
-                # Calculate average marks for each student
-                def calculate_avg_marks(row):
-                    # Use the same logic as the data model for consistency
-                    valid_subjects = [
-                        col for col in row.index 
-                        if col in data_model._all_subjects()
-                        and not col.startswith(('Asset_', 'Ngert_'))
-                    ]
-                    
-                    total_marks = 0
-                    subject_count = 0
-                    
-                    for subject in valid_subjects:
-                        mark = row[subject]
-                        if isinstance(mark, (int, float)) and pd.notna(mark):
-                            total_marks += float(mark)
-                            subject_count += 1
-                        elif isinstance(mark, str) and mark.replace('.','',1).isdigit():
-                            total_marks += float(mark)
-                            subject_count += 1
-                    
-                    return round(total_marks / subject_count, 2) if subject_count > 0 else 0
-                
-                results['Average Marks'] = results.apply(calculate_avg_marks, axis=1)
-                
-                # Sort results
-                ascending = sort_order == "Ascending"
-                if sort_by == "Average Marks":
-                    results = results.sort_values(by='Average Marks', ascending=ascending)
-                else:
-                    results = results.sort_values(by=sort_by, ascending=ascending)
-                
-                # Display results with metrics
-                st.success(f"✅ Found {len(results)} students")
-                
-                # Show key metrics
-                if len(results) > 0:
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        avg_of_avgs = results['Average Marks'].mean()
-                        st.metric("📊 Average Performance", f"{avg_of_avgs:.1f}%")
-                    
-                    with col2:
-                        top_student = results.iloc[0]['Name']
-                        st.metric("🏆 Top Student", top_student)
-                    
-                    with col3:
-                        stream_dist = results['Stream'].value_counts()
-                        st.metric("🎯 Stream Distribution", f"{len(stream_dist)} streams")
-                
-                # Display table
-                display_columns = ['StudentID', 'Name', 'Stream', 'Grade', 'Average Marks']
-                st.dataframe(results[display_columns], use_container_width=True)
-                
-                # Download option
-                csv = results[display_columns].to_csv(index=False)
-                st.download_button(
-                    label="📥 Download Results",
-                    data=csv,
-                    file_name=f"search_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    width='stretch'
-                )
-            else:
-                st.info("📝 No students found matching your criteria.")
+            total_marks = 0
+            subject_count = 0
+            
+            for subject in valid_subjects:
+                mark = row[subject]
+                if isinstance(mark, (int, float)) and pd.notna(mark):
+                    total_marks += float(mark)
+                    subject_count += 1
+                elif isinstance(mark, str) and mark.replace('.','',1).isdigit():
+                    total_marks += float(mark)
+                    subject_count += 1
+            
+            return round(total_marks / subject_count, 2) if subject_count > 0 else 0
+        
+        results['Average Marks'] = results.apply(calculate_avg_marks, axis=1)
+        
+        # Sort results
+        ascending = sort_order == "Ascending"
+        if sort_by == "Average Marks":
+            results = results.sort_values(by='Average Marks', ascending=ascending)
+        else:
+            results = results.sort_values(by=sort_by, ascending=ascending)
+        
+        # Display results with metrics
+        st.success(f"✅ Found {len(results)} students")
+        
+        # Show key metrics
+        if len(results) > 0:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                avg_of_avgs = results['Average Marks'].mean()
+                st.metric("📊 Average Performance", f"{avg_of_avgs:.1f}%")
+            
+            with col2:
+                top_student = results.iloc[0]['Name']
+                st.metric("🏆 Top Student", top_student)
+            
+            with col3:
+                stream_dist = results['Stream'].value_counts()
+                st.metric("🎯 Stream Distribution", f"{len(stream_dist)} streams")
+        
+        # Display table
+        display_columns = ['StudentID', 'Name', 'Stream', 'Grade', 'Average Marks']
+        st.dataframe(results[display_columns], use_container_width=True)
+        
+        # Download option
+        csv = results[display_columns].to_csv(index=False)
+        st.download_button(
+            label="📥 Download Results",
+            data=csv,
+            file_name=f"search_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            width='stretch'
+        )
+    else:
+        st.info("📝 No students found matching your criteria.")
 
 
 def show_individual_report(data_model):
