@@ -606,8 +606,13 @@ class EnhancedStudentDataModel:
                 categories['Internal Assessment'][col] = mark
 
         student_dict['Categories'] = categories
+        student_dict['Total'] = total_internal
+        student_dict['Percentage'] = (total_internal / (internal_count * 100) * 100) if internal_count > 0 else 0.0
+        student_dict['Subjects_Count'] = internal_count
+        
+        # Legacy/Internal keys
         student_dict['Total_Internal'] = total_internal
-        student_dict['Percentage_Internal'] = (total_internal / (internal_count * 100) * 100) if internal_count > 0 else 0.0
+        student_dict['Percentage_Internal'] = student_dict['Percentage']
         student_dict['Internal_Count'] = internal_count
         
         return student_dict, "Report generated successfully."
@@ -896,19 +901,26 @@ class EnhancedStudentDataModel:
         if filters.get('min_marks') is not None:
             # Calculate average marks for each student
             def calculate_avg_marks(row):
-                stream = row['Stream']
-                subjects = self.streams.get(stream, [])
+                # Dynamic subject discovery - fix for hardcoded streams
+                valid_subjects = [
+                    col for col in self.students_df.columns 
+                    if col not in self._expected_columns() 
+                    and not col.startswith(('Asset_', 'Ngert_'))
+                    and col in row.index
+                ]
+                
                 total_marks = 0
                 subject_count = 0
                 
-                for subject in subjects:
+                for subject in valid_subjects:
                     mark = row[subject]
-                    if mark != "N/A" and pd.notna(mark) and str(mark).isdigit():
-                        try:
-                            total_marks += int(mark)
-                            subject_count += 1
-                        except:
-                            continue
+                    # Check for valid numeric marks (handling N/A and strings)
+                    if isinstance(mark, (int, float)) and pd.notna(mark):
+                         total_marks += float(mark)
+                         subject_count += 1
+                    elif isinstance(mark, str) and mark.replace('.','',1).isdigit():
+                         total_marks += float(mark)
+                         subject_count += 1
                 
                 return total_marks / subject_count if subject_count > 0 else 0
             
@@ -1156,7 +1168,7 @@ def manage_students(data_model):
     with col1:
         st.markdown('<div class="sub-header">Student Operations</div>', unsafe_allow_html=True)
     with col2:
-        if st.button("🔄 Refresh Data", use_container_width=True):
+        if st.button("🔄 Refresh Data", width='stretch'):
             st.rerun()
     
     # Operations tabs
@@ -1192,7 +1204,7 @@ def manage_students(data_model):
                     if st.checkbox(f"Add {subject}"):
                         marks[subject] = st.slider(f"{subject} Mark", 0, 100, 0, key=f"opt_{subject}")
             
-            if st.form_submit_button("🚀 Add Student", use_container_width=True):
+            if st.form_submit_button("🚀 Add Student", width='stretch'):
                 student_data = {
                     'StudentID': student_id,
                     'Name': name,
@@ -1247,7 +1259,7 @@ def manage_students(data_model):
                                 marks = st.slider(f"{subject}", 0, 100, int(current_mark))
                                 report[subject] = marks
                         
-                        if st.form_submit_button("💾 Update Student", use_container_width=True):
+                        if st.form_submit_button("💾 Update Student", width='stretch'):
                             update_data = {
                                 'Name': name,
                                 'Age': age,
@@ -1285,7 +1297,7 @@ def manage_students(data_model):
                 st.write(f"**ID:** {selected_id}")
                 st.write(f"**Stream:** {student_info['Stream']}")
                 
-                if st.button("🗑️ Confirm Delete", type="secondary", use_container_width=True):
+                if st.button("🗑️ Confirm Delete", type="secondary", width='stretch'):
                     success, message = data_model.delete_student(selected_id)
                     if success:
                         st.success(f"✅ {message}")
@@ -1343,7 +1355,7 @@ def manage_students(data_model):
             file_size = uploaded_file.size / 1024
             st.info(f"📄 Accepted: {uploaded_file.name} ({file_size:.1f} KB)")
             
-            if st.button("🚀 Start Import", use_container_width=True, type="primary"):
+            if st.button("🚀 Start Import", width='stretch', type="primary"):
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
@@ -1384,7 +1396,7 @@ def manage_students(data_model):
         with col2:
             st.write("")
             st.write("")
-            if st.button("💾 Export All Data", use_container_width=True):
+            if st.button("💾 Export All Data", width='stretch'):
                 if not data_model.students_df.empty:
                     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                     if export_format == "CSV":
@@ -1428,10 +1440,10 @@ def advanced_search(data_model):
             min_marks_filter = st.slider("Minimum Average Marks", 0, 100, 0)
         
         with col3:
-            sort_by = st.selectbox("Sort By", ["Name", "Stream", "Grade", "Average Marks"])
+            sort_by = st.selectbox("Sort By", ["Name", "StudentID", "Stream", "Grade", "Average Marks"])
             sort_order = st.radio("Order", ["Ascending", "Descending"])
         
-        if st.form_submit_button("🔍 Search", use_container_width=True):
+        if st.form_submit_button("🔍 Search", width='stretch'):
             filters = {
                 'name': name_filter if name_filter else None,
                 'stream': stream_filter if stream_filter != "All" else None,
@@ -1444,19 +1456,24 @@ def advanced_search(data_model):
             if not results.empty:
                 # Calculate average marks for each student
                 def calculate_avg_marks(row):
-                    stream = row['Stream']
-                    subjects = data_model.get_subjects_for_stream(stream)
+                    # Use the same logic as the data model for consistency
+                    valid_subjects = [
+                        col for col in row.index 
+                        if col in data_model._all_subjects()
+                        and not col.startswith(('Asset_', 'Ngert_'))
+                    ]
+                    
                     total_marks = 0
                     subject_count = 0
                     
-                    for subject in subjects:
+                    for subject in valid_subjects:
                         mark = row[subject]
-                        if mark != "N/A" and pd.notna(mark) and str(mark).isdigit():
-                            try:
-                                total_marks += int(mark)
-                                subject_count += 1
-                            except:
-                                continue
+                        if isinstance(mark, (int, float)) and pd.notna(mark):
+                            total_marks += float(mark)
+                            subject_count += 1
+                        elif isinstance(mark, str) and mark.replace('.','',1).isdigit():
+                            total_marks += float(mark)
+                            subject_count += 1
                     
                     return round(total_marks / subject_count, 2) if subject_count > 0 else 0
                 
@@ -1498,7 +1515,7 @@ def advanced_search(data_model):
                     data=csv,
                     file_name=f"search_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv",
-                    use_container_width=True
+                    width='stretch'
                 )
             else:
                 st.info("📝 No students found matching your criteria.")
@@ -1665,7 +1682,7 @@ def show_individual_report(data_model):
                 
                 # Download Report
                 st.markdown("---")
-                if st.button("📥 Download Complete Report", use_container_width=True):
+                if st.button("📥 Download Complete Report", width='stretch'):
                     # Create comprehensive report
                     report_data = {
                         'Student Information': {
@@ -1798,7 +1815,7 @@ def show_class_roster(data_model):
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("📥 Download Full Roster", use_container_width=True):
+            if st.button("📥 Download Full Roster", width='stretch'):
                 csv = filtered_df.to_csv(index=False)
                 st.download_button(
                     label="Click to Download CSV",
@@ -1809,7 +1826,7 @@ def show_class_roster(data_model):
                 )
         
         with col2:
-            if st.button("📊 Generate Summary Report", use_container_width=True):
+            if st.button("📊 Generate Summary Report", width='stretch'):
                 summary = {
                     'Total Students': len(filtered_df),
                     'Stream Distribution': stream_counts.to_dict(),
@@ -2031,7 +2048,7 @@ def show_analytics(data_model):
             with col2:
                 format_type = st.radio("Export Format", ["CSV", "Excel", "PDF (Screenshot)"])
                 
-                if st.button("📥 Generate Custom Report", use_container_width=True):
+                if st.button("📥 Generate Custom Report", width='stretch'):
                     with st.spinner("Generating report..."):
                         # Generate report based on selections
                         report_data = data_model.get_dashboard_stats()
@@ -2093,7 +2110,7 @@ def attendance_tracking(data_model):
                 if selected_display:
                     selected_id = student_options[selected_display]
                     
-                    if st.button("✅ Mark Attendance", use_container_width=True):
+                    if st.button("✅ Mark Attendance", width='stretch'):
                         success, message = data_model.mark_attendance(
                             selected_id, date.strftime('%Y-%m-%d'), status, remarks
                         )
@@ -2292,17 +2309,15 @@ def email_reports(data_model):
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                if st.button("👁️ Preview Report", use_container_width=True):
+                if st.button("👁️ Preview Report", width='stretch'):
                     report, message = data_model.get_individual_report(selected_id)
                     if report:
-                        st.success("✅ Report generated successfully!")
-                        
                         # Show preview
                         with st.expander("📋 Report Preview"):
                             st.json(report)
             
             with col2:
-                if st.button("📧 Send Email", use_container_width=True, type="primary"):
+                if st.button("📧 Send Email", width='stretch', type="primary"):
                     if not recipient_email:
                         st.error("❌ Please enter recipient email address")
                     elif not st.session_state.smtp_config['from_email']:
@@ -2341,7 +2356,7 @@ def email_reports(data_model):
                                 st.error(f"❌ Failed to generate report: {html_content}")
             
             with col3:
-                if st.button("📨 Test Connection", use_container_width=True):
+                if st.button("📨 Test Connection", width='stretch'):
                     if st.session_state.smtp_config['from_email'] and st.session_state.smtp_config['password']:
                         with st.spinner("Testing connection..."):
                             try:
@@ -2402,7 +2417,7 @@ def bulk_operations(data_model):
                     import_mode = st.radio("Import Mode", ["Add New Only", "Update Existing", "Overwrite All"])
                 
                 with col2:
-                    if st.button("🚀 Start Bulk Import", use_container_width=True):
+                    if st.button("🚀 Start Bulk Import", width='stretch'):
                         with st.spinner("Importing data..."):
                             success, message, errors = data_model.bulk_import_students(uploaded_file)
                             
@@ -2443,7 +2458,7 @@ def bulk_operations(data_model):
                     subject = st.selectbox("Select Subject", data_model._all_subjects())
                     new_mark = st.slider("New Mark", 0, 100, 50)
                     
-                    if st.button("💾 Apply Bulk Update", use_container_width=True):
+                    if st.button("💾 Apply Bulk Update", width='stretch'):
                         success_count = 0
                         error_messages = []
                         
@@ -2476,7 +2491,7 @@ def bulk_operations(data_model):
                     if not filtered_students.empty:
                         st.write(f"**Students to update:** {len(filtered_students)}")
                         
-                        if st.button("🔄 Update Streams", use_container_width=True):
+                        if st.button("🔄 Update Streams", width='stretch'):
                             success_count = 0
                             for _, student in filtered_students.iterrows():
                                 success, _ = data_model.update_student(
@@ -2514,7 +2529,7 @@ def bulk_operations(data_model):
             else:
                 export_df = data_model.students_df
             
-            if st.button("📥 Generate Export", use_container_width=True):
+            if st.button("📥 Generate Export", width='stretch'):
                 if format_type == "CSV":
                     data = export_df.to_csv(index=False)
                     filename = f"bulk_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
@@ -2620,7 +2635,7 @@ def smart_alerts(data_model):
             """, unsafe_allow_html=True)
             
             # View button below the card
-            if st.button(f"👁️ View Student Report", key=f"view_alert_{idx}", use_container_width=False):
+            if st.button(f"👁️ View Student Report", key=f"view_alert_{idx}", width='stretch'):
                 # Set session state to navigate to individual report
                 st.session_state['selected_page'] = 'Individual Report'
                 st.session_state['selected_student_id'] = alert['student_id']
@@ -2656,7 +2671,7 @@ def smart_alerts(data_model):
         
         # Export alerts
         st.markdown("---")
-        if st.button("📥 Export Alerts Report", use_container_width=True):
+        if st.button("📥 Export Alerts Report", width='stretch'):
             alerts_df = pd.DataFrame(alerts)
             csv = alerts_df.to_csv(index=False)
             
@@ -2933,7 +2948,7 @@ def main():
     else:
         default_index = 0
     
-    page = st.sidebar.radio("", [
+    page = st.sidebar.radio("Navigation", [
         "🏠 Dashboard", 
         "👨‍🎓 Manage Students", 
         "🔍 Advanced Search",
@@ -2944,7 +2959,7 @@ def main():
         "📧 Email Reports",
         "⚡ Bulk Operations",
         "🚨 Smart Alerts"
-    ], index=default_index)
+    ], index=default_index, label_visibility="collapsed")
 
     st.sidebar.markdown("---")
     
