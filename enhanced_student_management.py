@@ -1021,118 +1021,12 @@ class EnhancedStudentDataModel:
                 if merge:
                     msg += " (Merged with existing data)"
                 return True, msg, error_messages
-        """Bulk import students from CSV/Excel"""
-        try:
-            # Check if file is empty
-            if file.size == 0:
-                return False, "Import failed: Uploaded file is empty", []
-            
-            # Reset file pointer
-            file.seek(0)
-            
-            # Read file
-            try:
-                if file.name.endswith('.csv'):
-                    new_data = pd.read_csv(file, keep_default_na=False)
-                elif file.name.endswith(('.xlsx', '.xls')):
-                    new_data = pd.read_excel(file, keep_default_na=False)
-                else:
-                    return False, "Import failed: Unsupported file format.", []
-            except Exception as read_error:
-                return False, f"Import failed: {str(read_error)}", []
-            
-            if new_data.empty:
-                return False, "Import failed: No data found.", []
-            
-            # Normalize columns: strip whitespace
-            new_data.columns = new_data.columns.str.strip()
-            
-            # Column Aliasing Mapping
-            ALIAS_MAPPING = {
-                'Math': 'Mathematics', 'Maths': 'Mathematics',
-                'Phy': 'Physics', 'Physics Theory': 'Physics',
-                'Chem': 'Chemistry', 'Chemistry Theory': 'Chemistry',
-                'Bio': 'Biology', 'Biology Theory': 'Biology',
-                'Eng': 'English', 'Eng Core': 'English',
-                'CS': 'Computer Science', 'Comp Sc': 'Computer Science', 'Computer': 'Computer Science',
-                'IP': 'Informatics Practices',
-                'Acc': 'Accountancy', 'Accounts': 'Accountancy',
-                'Eco': 'Economics',
-                'BS': 'Business Studies', 'Business': 'Business Studies',
-                'PE': 'Physical Education', 'Phy Edu': 'Physical Education',
-                'Psych': 'Psychology',
-                'Ent': 'Entrepreneurship',
-                'AI': 'AI', 'Artificial Intelligence': 'AI',
-                'MM': 'Mass Media', 'Media': 'Mass Media'
-            }
-            
-            # Apply renaming (case-insensitive lookup)
-            new_cols = []
-            for col in new_data.columns:
-                col_lower = col.strip().lower()
-                mapped_col = col # Default to original
-                for alias, target in ALIAS_MAPPING.items():
-                    if alias.lower() == col_lower:
-                        mapped_col = target
-                        break
-                new_cols.append(mapped_col)
-            
-            new_data.columns = new_cols
-            
-            # Check required columns (flexible for merging - ID is key)
-            if 'StudentID' not in new_data.columns:
-                return False, "Import failed: Missing 'StudentID' column.", []
-
-            success_count = 0
-            error_messages = []
-            
-            for idx, row in new_data.iterrows():
-                try:
-                    data_dict = row.to_dict()
-                    # Clean keys and values
-                    cleaned_data = {}
-                    for k, v in data_dict.items():
-                        key = k.strip()
-                        # Strip whitespace from string values
-                        if isinstance(v, str):
-                            value = v.strip()
-                        else:
-                            value = v
-                        cleaned_data[key] = value
-                    
-                    # Normalize Stream name (capitalize first letter)
-                    if 'Stream' in cleaned_data and isinstance(cleaned_data['Stream'], str):
-                        cleaned_data['Stream'] = cleaned_data['Stream'].capitalize()
-                    
-                    # Ensure properly typed ID
-                    try:
-                        cleaned_data['StudentID'] = int(float(cleaned_data['StudentID']))
-                    except:
-                        error_messages.append(f"Row {idx+2}: Invalid StudentID")
-                        continue
-                        
-                    # Add/Merge
-                    success, message = self.add_student(cleaned_data, merge=merge)
-                    if success:
-                        success_count += 1
-                    else:
-                        error_messages.append(f"Row {idx+2}: {message}")
-                        
-                except Exception as e:
-                    error_messages.append(f"Row {idx+2}: Unexpected error: {e}")
-            
-            if success_count > 0:
-                msg = f"Successfully processed {success_count} students."
-                if error_messages:
-                    msg += f" ({len(error_messages)} errors)"
-                return True, msg, error_messages
             else:
                 return False, "Failed to process any students.", error_messages
                 
         except Exception as e:
-            import traceback
-            return False, f"System error: {e}", []
-
+            return False, f"Error reading file: {str(e)}", []
+    
     def generate_email_report(self, student_id, recipient_email):
         """Generate and prepare email report"""
         report, message = self.get_individual_report(student_id)
