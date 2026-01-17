@@ -299,7 +299,7 @@ class EnhancedStudentDataModel:
             'Commerce': ['Accountancy', 'Economics', 'Business Studies', 'Computer Science', 'English']
         }
         self.optional_subjects = ['Computer Science', 'AI', 'Mass Media', 'Physical Education']
-        self.base_columns = ['StudentID', 'Name', 'Age', 'Grade', 'Stream']
+        self.base_columns = ['StudentID', 'Name', 'Age', 'Grade', 'Section', 'Stream']
         self.attendance_columns = ['Date', 'Status', 'Remarks']
         self.dynamic_subjects = set()
         self._initialize_dataframe()
@@ -375,7 +375,7 @@ class EnhancedStudentDataModel:
                              self.students_df.loc[idx, subject] = 0
         
         # Handle string columns
-        for col in ['Name', 'Grade', 'Stream']:
+        for col in ['Name', 'Grade', 'Section', 'Stream']:
             if col in self.students_df.columns:
                 self.students_df[col] = self.students_df[col].fillna("").astype(str)
 
@@ -1153,6 +1153,7 @@ def manage_students(data_model):
                 name = st.text_input("Full Name")
                 age = st.number_input("Age", min_value=10, max_value=25, step=1)
                 grade = st.selectbox("Grade", ["9th", "10th", "11th", "12th"])
+                section = st.selectbox("Section", ["A", "B", "C", "D", "E", "F", "G", "H"])
                 stream = st.selectbox("Stream", ["Science", "Commerce", "Other"])
             
             with col2:
@@ -1177,6 +1178,7 @@ def manage_students(data_model):
                     'Name': name,
                     'Age': age,
                     'Grade': grade,
+                    'Section': section,
                     'Stream': stream
                 }
                 
@@ -1527,7 +1529,20 @@ def show_individual_report(data_model):
     
     if not data_model.students_df.empty:
         student_ids = data_model.students_df['StudentID'].dropna().astype(int).tolist()
-        selected_id = st.selectbox("Select Student ID", student_ids)
+        
+        # Check if student ID was pre-selected (from Smart Alerts)
+        if 'selected_student_id' in st.session_state and st.session_state.get('selected_student_id'):
+            preselected_id = st.session_state['selected_student_id']
+            if preselected_id in student_ids:
+                default_index = student_ids.index(preselected_id)
+            else:
+                default_index = 0
+            # Clear the selection after using it
+            st.session_state['selected_student_id'] = None
+        else:
+            default_index = 0
+        
+        selected_id = st.selectbox("Select Student ID", student_ids, index=default_index)
         
         if selected_id:
             # Get report data
@@ -1703,13 +1718,17 @@ def show_class_roster(data_model):
     
     if not data_model.students_df.empty:
         # Filters
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             stream_filter = st.selectbox("Filter by Stream", ["All"] + list(data_model.streams.keys()))
         with col2:
-            grade_filter = st.selectbox("Filter by Grade", ["All"] + sorted(data_model.students_df['Grade'].unique()))
+            grade_filter = st.selectbox("Filter by Grade", ["All"] + sorted(data_model.students_df['Grade'].unique().tolist()))
         with col3:
-            sort_by = st.selectbox("Sort by", ["Name", "StudentID", "Stream", "Grade"])
+            # Get unique sections, filter out empty strings
+            sections = sorted([s for s in data_model.students_df['Section'].unique().tolist() if s and s.strip()])
+            section_filter = st.selectbox("Filter by Section", ["All"] + sections)
+        with col4:
+            sort_by = st.selectbox("Sort by", ["Name", "StudentID", "Stream", "Grade", "Section"])
         
         # Apply filters
         filtered_df = data_model.students_df.copy()
@@ -1720,6 +1739,9 @@ def show_class_roster(data_model):
         
         if grade_filter != "All":
             filtered_df = filtered_df[filtered_df['Grade'] == grade_filter]
+        
+        if section_filter != "All":
+            filtered_df = filtered_df[filtered_df['Section'].str.strip() == section_filter.strip()]
         
         # Sort data
         filtered_df = filtered_df.sort_values(by=sort_by)
@@ -2561,7 +2583,7 @@ def smart_alerts(data_model):
         st.markdown(f"### 📋 Showing {len(filtered_alerts)} Alerts")
         
         # Display alerts
-        for alert in filtered_alerts:
+        for idx, alert in enumerate(filtered_alerts):
             # Determine card style
             if alert['level'] == 'High':
                 card_class = 'alert-card'
@@ -2573,41 +2595,39 @@ def smart_alerts(data_model):
             # Format timestamp
             timestamp = alert['timestamp'].strftime('%Y-%m-%d %H:%M')
             
-            st.markdown(f"""
-            <div class='{card_class}'>
-                <div style='display: flex; justify-content: space-between; align-items: start;'>
-                    <div style='flex: 1;'>
-                        <div style='display: flex; align-items: center; margin-bottom: 0.5rem;'>
-                            <span style='font-size: 1.2rem; margin-right: 0.5rem;'>{icon}</span>
-                            <strong>{alert['type']} Alert</strong>
-                            <span style='margin-left: 1rem; padding: 0.2rem 0.5rem; 
-                                      background: rgba(255,255,255,0.2); border-radius: 10px;
-                                      font-size: 0.8rem;'>
-                                {alert['level']} Priority
-                            </span>
-                        </div>
-                        <p style='margin: 0.5rem 0;'>{alert['message']}</p>
-                        <div style='display: flex; gap: 1rem; margin-top: 1rem;'>
-                            <a href='#individual-report' style='text-decoration: none;'>
-                                <button style='background: rgba(255,255,255,0.2); border: none; 
-                                        color: white; padding: 0.3rem 0.8rem; border-radius: 5px;
-                                        cursor: pointer; font-size: 0.9rem;'>
-                                    👁️ View Student
-                                </button>
-                            </a>
-                            <button onclick='markResolved(this)' style='background: rgba(255,255,255,0.2); 
-                                    border: none; color: white; padding: 0.3rem 0.8rem; 
-                                    border-radius: 5px; cursor: pointer; font-size: 0.9rem;'>
-                                ✅ Mark Resolved
-                            </button>
+            # Create columns for alert display
+            col_alert, col_button = st.columns([4, 1])
+            
+            with col_alert:
+                st.markdown(f"""
+                <div class='{card_class}'>
+                    <div style='display: flex; justify-content: space-between; align-items: start;'>
+                        <div style='flex: 1;'>
+                            <div style='display: flex; align-items: center; margin-bottom: 0.5rem;'>
+                                <span style='font-size: 1.2rem; margin-right: 0.5rem;'>{icon}</span>
+                                <strong>{alert['type']} Alert</strong>
+                                <span style='margin-left: 1rem; padding: 0.2rem 0.5rem; 
+                                          background: rgba(255,255,255,0.2); border-radius: 10px;
+                                          font-size: 0.8rem;'>
+                                    {alert['level']} Priority
+                                </span>
+                            </div>
+                            <p style='margin: 0.5rem 0;'>{alert['message']}</p>
                         </div>
                     </div>
                     <div style='font-size: 0.8rem; opacity: 0.8; text-align: right;'>
                         {timestamp}
                     </div>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
+            
+            with col_button:
+                # Streamlit button for navigation
+                if st.button(f"👁️ View", key=f"view_alert_{idx}", use_container_width=True):
+                    # Set session state to navigate to individual report
+                    st.session_state['selected_page'] = 'Individual Report'
+                    st.session_state['selected_student_id'] = alert['student_id']
+                    st.rerun()
         
         # Alert statistics
         st.markdown("---")
@@ -2890,6 +2910,32 @@ def main():
     """, unsafe_allow_html=True)
 
     # Navigation with icons
+    # Check if navigation override from session state (e.g., from Smart Alerts)
+    if 'selected_page' in st.session_state and st.session_state.get('selected_page'):
+        page_options = [
+            "🏠 Dashboard", 
+            "👨‍🎓 Manage Students", 
+            "🔍 Advanced Search",
+            "📄 Individual Report",
+            "📋 Class Roster",
+            "📊 Analytics & Predictions",
+            "📅 Attendance Tracking", 
+            "📧 Email Reports",
+            "⚡ Bulk Operations",
+            "🚨 Smart Alerts"
+        ]
+        # Find index of selected page
+        selected_page = st.session_state['selected_page']
+        page_map = {p.split(' ', 1)[1]: p for p in page_options}
+        if selected_page in page_map:
+            default_index = page_options.index(page_map[selected_page])
+        else:
+            default_index = 0
+        # Clear the override after using it
+        st.session_state['selected_page'] = None
+    else:
+        default_index = 0
+    
     page = st.sidebar.radio("", [
         "🏠 Dashboard", 
         "👨‍🎓 Manage Students", 
@@ -2901,7 +2947,7 @@ def main():
         "📧 Email Reports",
         "⚡ Bulk Operations",
         "🚨 Smart Alerts"
-    ], index=0)
+    ], index=default_index)
 
     st.sidebar.markdown("---")
     
@@ -2967,11 +3013,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
