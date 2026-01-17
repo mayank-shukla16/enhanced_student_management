@@ -1475,29 +1475,29 @@ def advanced_search(data_model):
             
         if not results.empty:
         # Calculate average marks for each student
-        def calculate_avg_marks(row):
-            # Use the same logic as the data model for consistency
-            valid_subjects = [
-                col for col in row.index 
-                if col in data_model._all_subjects()
-                and not col.startswith(('Asset_', 'Ngert_'))
-            ]
+            def calculate_avg_marks(row):
+                # Use the same logic as the data model for consistency
+                valid_subjects = [
+                    col for col in row.index 
+                    if col in data_model._all_subjects()
+                    and not col.startswith(('Asset_', 'Ngert_'))
+                ]
+                
+                total_marks = 0
+                subject_count = 0
+                
+                for subject in valid_subjects:
+                    mark = row[subject]
+                    if isinstance(mark, (int, float)) and pd.notna(mark):
+                        total_marks += float(mark)
+                        subject_count += 1
+                    elif isinstance(mark, str) and mark.replace('.','',1).isdigit():
+                        total_marks += float(mark)
+                        subject_count += 1
+                
+                return round(total_marks / subject_count, 2) if subject_count > 0 else 0
             
-            total_marks = 0
-            subject_count = 0
-            
-            for subject in valid_subjects:
-                mark = row[subject]
-                if isinstance(mark, (int, float)) and pd.notna(mark):
-                    total_marks += float(mark)
-                    subject_count += 1
-                elif isinstance(mark, str) and mark.replace('.','',1).isdigit():
-                    total_marks += float(mark)
-                    subject_count += 1
-            
-            return round(total_marks / subject_count, 2) if subject_count > 0 else 0
-        
-        results['Average Marks'] = results.apply(calculate_avg_marks, axis=1)
+            results['Average Marks'] = results.apply(calculate_avg_marks, axis=1)
         
         # Sort results
         ascending = sort_order == "Ascending"
