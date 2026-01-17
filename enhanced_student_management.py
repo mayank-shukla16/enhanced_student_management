@@ -2805,8 +2805,6 @@ def show_dashboard(data_model):
             </div>
             """, unsafe_allow_html=True)
 
-# ... (Other functions would follow with similar enhancements)
-
 def main():
     """Main Application Entry Point"""
     # Initialize session state
@@ -2934,16 +2932,8 @@ def main():
         </div>
     """, unsafe_allow_html=True)
 
-# Note: Due to character limits, I've shown the enhanced dashboard and main function.
-# The other functions (manage_students, advanced_search, etc.) would follow similar enhancement patterns.
-
 if __name__ == "__main__":
     main()
-
-
-
-
-
 
 
 
