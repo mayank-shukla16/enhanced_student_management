@@ -1694,9 +1694,9 @@ def show_individual_report(data_model):
                         st.markdown(f"✅ {rec}")
                     
                     # Weak and Strong subjects
-                    if prediction['weak_subjects']:
-                        st.markdown(f"#### 📉 Need Improvement: {', '.join(prediction['weak_subjects'])}")
                     
+                    # Weak and Strong subjects
+                    # Weak subjects covered in recommendations
                     if prediction['strong_subjects']:
                         st.markdown(f"#### 📈 Strong Areas: {', '.join(prediction['strong_subjects'])}")
                 
@@ -3037,6 +3037,7 @@ def main():
         <div style='text-align: center; padding: 1rem; color: #666; font-size: 0.8rem;'>
             <p>🎓 EduVision Pro v2.0</p>
             <p>Smart Student Management</p>
+            <p style='margin-top: 0.5rem; font-size: 0.7rem;'>Made by Mayank Shukla, Ritvik Murali and Sourav Rajesh</p>
         </div>
     """, unsafe_allow_html=True)
 
