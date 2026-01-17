@@ -1410,8 +1410,6 @@ def manage_students(data_model):
                         )
                 else:
                     st.warning("No data to export!")
-                else:
-                    st.warning("No data to export")
 
 
 def advanced_search(data_model):
