@@ -339,8 +339,7 @@ class EnhancedStudentDataModel:
         
         # Convert data types
         if 'StudentID' in self.students_df.columns:
-            self.students_df['StudentID'] = pd.to_numeric(self.students_df['StudentID'], errors='coerce')
-            self.students_df['StudentID'] = self.students_df['StudentID'].fillna(0).astype('int64')
+            self.students_df['StudentID'] = self.students_df['StudentID'].astype(str)
         
         if 'Age' in self.students_df.columns:
             self.students_df['Age'] = pd.to_numeric(self.students_df['Age'], errors='coerce')
@@ -390,7 +389,7 @@ class EnhancedStudentDataModel:
     def add_student(self, data, merge=False):
         try:
             data_copy = data.copy()
-            data_copy['StudentID'] = int(data_copy['StudentID'])
+            data_copy['StudentID'] = str(data_copy['StudentID']).strip()
             if 'Age' in data_copy:
                 try:
                     data_copy['Age'] = int(data_copy['Age'])
@@ -401,7 +400,7 @@ class EnhancedStudentDataModel:
         
         # Check if student exists
         mask = self.students_df['StudentID'].notna() & (
-            self.students_df['StudentID'].astype(int) == int(data_copy['StudentID'])
+            self.students_df['StudentID'].astype(str) == str(data_copy['StudentID'])
         )
         exists = mask.any()
 
@@ -479,12 +478,9 @@ class EnhancedStudentDataModel:
         return True, "Student added successfully."
 
     def update_student(self, student_id, data):
-        try:
-            sid = int(student_id)
-        except:
-            return False, "Invalid student ID."
+        sid = str(student_id).strip()
         
-        mask = self.students_df['StudentID'].notna() & (self.students_df['StudentID'].astype(int) == sid)
+        mask = self.students_df['StudentID'].notna() & (self.students_df['StudentID'].astype(str) == sid)
         if not mask.any():
             return False, "Student ID not found."
         
@@ -514,12 +510,9 @@ class EnhancedStudentDataModel:
         return True, "Student updated successfully."
 
     def delete_student(self, student_id):
-        try:
-            sid = int(student_id)
-        except:
-            return False, "Invalid student ID."
+        sid = str(student_id).strip()
         
-        mask = self.students_df['StudentID'].notna() & (self.students_df['StudentID'].astype(int) == sid)
+        mask = self.students_df['StudentID'].notna() & (self.students_df['StudentID'].astype(str) == sid)
         if not mask.any():
             return False, "Student ID not found."
         
@@ -548,12 +541,9 @@ class EnhancedStudentDataModel:
 
     def get_individual_report(self, student_id):
         """FIXED: Proper individual report generation with grouped categories"""
-        try:
-            sid = int(student_id)
-        except:
-            return None, "Invalid student ID."
+        sid = str(student_id).strip()
         
-        mask = self.students_df['StudentID'].notna() & (self.students_df['StudentID'].astype(int) == sid)
+        mask = self.students_df['StudentID'].notna() & (self.students_df['StudentID'].astype(str) == sid)
         student_row = self.students_df[mask]
         
         if student_row.empty:
@@ -692,12 +682,9 @@ class EnhancedStudentDataModel:
         return base_cols + relevant_subjects
 
     def mark_attendance(self, student_id, date, status="Present", remarks=""):
-        try:
-            sid = int(student_id)
-        except:
-            return False, "Invalid student ID."
+        sid = str(student_id).strip()
         
-        mask = self.students_df['StudentID'].notna() & (self.students_df['StudentID'].astype(int) == sid)
+        mask = self.students_df['StudentID'].notna() & (self.students_df['StudentID'].astype(str) == sid)
         if not mask.any():
             return False, "Student ID not found."
         
@@ -749,12 +736,9 @@ class EnhancedStudentDataModel:
 
     def predictive_analytics(self, student_id):
         """Predict future performance based on historical data"""
-        try:
-            sid = int(student_id)
-        except:
-            return None, "Invalid student ID"
+        sid = str(student_id).strip()
         
-        mask = self.students_df['StudentID'].notna() & (self.students_df['StudentID'].astype(int) == sid)
+        mask = self.students_df['StudentID'].notna() & (self.students_df['StudentID'].astype(str) == sid)
         student_row = self.students_df[mask]
         
         if student_row.empty:
@@ -1021,9 +1005,11 @@ class EnhancedStudentDataModel:
                     if 'Stream' in cleaned_data and isinstance(cleaned_data['Stream'], str):
                         cleaned_data['Stream'] = cleaned_data['Stream'].capitalize()
                     
-                    # Ensure properly typed ID
+                    # Ensure properly typed ID (String)
                     try:
-                        cleaned_data['StudentID'] = int(float(cleaned_data['StudentID']))
+                        cleaned_data['StudentID'] = str(cleaned_data['StudentID']).strip()
+                        if not cleaned_data['StudentID']:
+                            raise ValueError("Empty ID")
                     except:
                         error_messages.append(f"Row {idx+2}: Invalid StudentID")
                         continue
@@ -1193,7 +1179,7 @@ def manage_students(data_model):
             col1, col2 = st.columns(2)
             
             with col1:
-                student_id = st.number_input("Student ID", min_value=1, step=1, format="%d")
+                student_id = st.text_input("Student ID")
                 name = st.text_input("Full Name")
                 age = st.number_input("Age", min_value=10, max_value=25, step=1)
                 grade = st.selectbox("Grade", ["9th", "10th", "11th", "12th"])
@@ -1241,7 +1227,7 @@ def manage_students(data_model):
         st.markdown("### Edit Existing Student")
         
         if not data_model.students_df.empty:
-            student_ids = data_model.students_df['StudentID'].dropna().astype(int).tolist()
+            student_ids = data_model.students_df['StudentID'].dropna().astype(str).tolist()
             selected_id = st.selectbox("Select Student ID", student_ids)
             
             if selected_id:
@@ -1295,7 +1281,7 @@ def manage_students(data_model):
         st.markdown("### Delete Student")
         
         if not data_model.students_df.empty:
-            student_ids = data_model.students_df['StudentID'].dropna().astype(int).tolist()
+            student_ids = data_model.students_df['StudentID'].dropna().astype(str).tolist()
             selected_id = st.selectbox("Select Student ID to Delete", student_ids, key="delete_select")
             
             if selected_id:
@@ -1546,7 +1532,7 @@ def show_individual_report(data_model):
     st.markdown('<div class="main-header">📄 Individual Student Report</div>', unsafe_allow_html=True)
     
     if not data_model.students_df.empty:
-        student_ids = data_model.students_df['StudentID'].dropna().astype(int).tolist()
+        student_ids = data_model.students_df['StudentID'].dropna().astype(str).tolist()
         
         # Check if student ID was pre-selected (from Smart Alerts)
         if 'selected_student_id' in st.session_state and st.session_state.get('selected_student_id'):
