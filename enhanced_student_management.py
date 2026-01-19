@@ -365,13 +365,10 @@ class EnhancedStudentDataModel:
                 # Fill NaN with appropriate values
                 mask = self.students_df[subject].isna()
                 if mask.any():
-                    # Check if the original value was "N/A" string before numeric conversion
-                    for idx in self.students_df[mask].index:
-                        original_val = current_values.iloc[idx] if idx < len(current_values) else None
-                        if isinstance(original_val, str) and original_val.strip().upper() == "N/A":
-                            self.students_df.loc[idx, subject] = "N/A"
-                        else:
-                             self.students_df.loc[idx, subject] = 0
+                    # Vectorized check for "N/A" string
+                    is_na_str = (current_values.astype(str).str.strip().str.upper() == "N/A")
+                    self.students_df.loc[mask & is_na_str, subject] = "N/A"
+                    self.students_df.loc[mask & ~is_na_str, subject] = 0
         
         # Handle string columns
         for col in ['Name', 'Gender', 'Grade', 'Section']:
@@ -959,53 +956,95 @@ class EnhancedStudentDataModel:
             success_count = 0
             error_messages = []
             
+            # PHASE 1: PRE-DETECT NEW COLUMNS (Efficiently)
+            import_cols = new_data.columns.tolist()
+            potential_dynamic = [c for c in import_cols if c not in self.base_columns and c not in self._all_subjects() and c != 'Age']
+            if potential_dynamic:
+                for col in potential_dynamic:
+                    self.dynamic_subjects.add(col)
+                self._ensure_columns_and_types()
+
+            # PHASE 2: PRE-VALIDATE DATA (Collect in list for single concat)
+            students_to_add = []
+            success_count = 0
+            error_messages = []
+            
+            # Prepare set of existing IDs for fast lookup
+            existing_ids = set(self.students_df['StudentID'].astype(str).tolist())
+            
             for idx, row in new_data.iterrows():
                 try:
-                    data_dict = row.to_dict()
-                    # Clean keys and values
-                    cleaned_data = {}
-                    for k, v in data_dict.items():
-                        key = k.strip()
-                        # Strip whitespace from string values
+                    data_dict = {}
+                    # Fast clean
+                    for k, v in row.to_dict().items():
+                        cleaned_k = k.strip()
                         if isinstance(v, str):
-                            value = v.strip()
+                            data_dict[cleaned_k] = v.strip()
                         else:
-                            value = v
-                        cleaned_data[key] = value
+                            data_dict[cleaned_k] = v if pd.notna(v) else ""
                     
-                    # Normalize Stream name (capitalize first letter)
-                    if 'Stream' in cleaned_data and isinstance(cleaned_data['Stream'], str):
-                        cleaned_data['Stream'] = cleaned_data['Stream'].capitalize()
+                    sid = str(data_dict.get('StudentID', '')).strip()
+                    if not sid:
+                        error_messages.append(f"Row {idx+2}: Missing StudentID")
+                        continue
+                        
+                    data_dict['StudentID'] = sid
                     
-                    # Ensure properly typed ID (String)
-                    if 'StudentID' in cleaned_data:
-                         cleaned_data['StudentID'] = str(cleaned_data['StudentID']).strip()
+                    if sid in existing_ids:
+                        if not merge:
+                            error_messages.append(f"Row {idx+2}: ID {sid} already exists. Skipping.")
+                            continue
+                        else:
+                            # If merge, we still do individually for now (complex to bulk merge)
+                            # but we use a more efficient update method if possible
+                            success, msg = self.add_student(data_dict, merge=True)
+                            if success: success_count += 1
+                            else: error_messages.append(f"Row {idx+2}: {msg}")
+                            continue
+
+                    # Prep data for new student (Add defaults)
+                    data_dict.setdefault('Name', f"Student {sid}")
+                    data_dict.setdefault('Age', 16)
+                    data_dict.setdefault('Grade', "12th")
+                    data_dict.setdefault('Section', "A")
                     
-                    # FLEXIBLE: Add smart defaults for missing required fields
-                    if 'Name' not in cleaned_data or not cleaned_data.get('Name'):
-                        cleaned_data['Name'] = f"Student {cleaned_data['StudentID']}"
+                    # Handle subjects (Convert to float/NA)
+                    for subject in self._all_subjects():
+                        val = data_dict.get(subject, 0)
+                        if val == "" or val is None:
+                            data_dict[subject] = 0
+                        elif str(val).strip().upper() == "N/A":
+                            data_dict[subject] = "N/A"
+                        else:
+                            try:
+                                data_dict[subject] = float(val)
+                            except:
+                                data_dict[subject] = 0
                     
-                    if 'Age' not in cleaned_data or not cleaned_data.get('Age'):
-                        cleaned_data['Age'] = 16  # Default age
-                    
-                    if 'Grade' not in cleaned_data or not cleaned_data.get('Grade'):
-                        cleaned_data['Grade'] = "12th"  # Default grade
-                    
-                    if 'Section' not in cleaned_data or not cleaned_data.get('Section'):
-                        cleaned_data['Section'] = "A"  # Default section
-                    
-                    if 'Stream' not in cleaned_data or not cleaned_data.get('Stream'):
-                        cleaned_data['Stream'] = "Other"  # Default stream
-                    
-                    # Add/Merge
-                    success, message = self.add_student(cleaned_data, merge=merge)
-                    if success:
-                        success_count += 1
-                    else:
-                        error_messages.append(f"Row {idx+2}: {message}")
+                    students_to_add.append(data_dict)
+                    existing_ids.add(sid) # Prevent duplicates WITHIN the import file
+                    success_count += 1
                         
                 except Exception as e:
                     error_messages.append(f"Row {idx+2}: Unexpected error: {e}")
+            
+            # PHASE 3: BULK ADD (One single operation)
+            if students_to_add:
+                new_students_df = pd.DataFrame(students_to_add)
+                # Ensure it has all model columns
+                for col in self._expected_columns():
+                    if col not in new_students_df.columns:
+                        new_students_df[col] = 0 if col in self._all_subjects() else ""
+                
+                # Re-order and filter columns to match model exactly
+                new_students_df = new_students_df[self._expected_columns()]
+                
+                # Final concat
+                self.students_df = pd.concat([self.students_df, new_students_df], ignore_index=True)
+                
+            # Perform final cleanup and type fix ONCE
+            if success_count > 0:
+                self._ensure_columns_and_types()
             
             if success_count > 0:
                 msg = f"Successfully processed {success_count} students."
