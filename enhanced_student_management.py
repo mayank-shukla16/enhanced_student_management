@@ -439,8 +439,8 @@ class EnhancedStudentDataModel:
                 return True, "Student data merged successfully."
         
         # New Student Logic
-        stream = data_copy.get('Stream', 'Other')
-        stream_subjects = self.streams.get(stream, [])
+        # stream = data_copy.get('Stream', 'Other') # REMOVED
+        # stream_subjects = self.streams.get(stream, []) # REMOVED
         
         # Handle dynamic columns in new data
         for key in data_copy.keys():
