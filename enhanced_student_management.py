@@ -57,12 +57,12 @@ st.markdown("""
     }
     
     .feature-card {
-        background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
-        color: #2d3748;
+        background: linear-gradient(135deg, rgba(26, 32, 44, 0.8) 0%, rgba(45, 55, 72, 0.8) 100%);
+        color: white;
         padding: 1.5rem;
         border-radius: 20px;
-        box-shadow: 0 15px 35px rgba(0,0,0,0.1);
-        border: 1px solid rgba(255,255,255,0.2);
+        box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+        border: 1px solid rgba(255,255,255,0.1);
         backdrop-filter: blur(10px);
         transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         margin-bottom: 1.5rem;
@@ -77,7 +77,7 @@ st.markdown("""
         left: -100%;
         width: 100%;
         height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
         transition: left 0.6s;
     }
     
@@ -294,12 +294,12 @@ def load_lottie_url(url: str):
 
 class EnhancedStudentDataModel:
     def __init__(self):
-        self.streams = {
-            'Science': ['Mathematics', 'Physics', 'Chemistry', 'Biology', 'English'],
-            'Commerce': ['Accountancy', 'Economics', 'Business Studies', 'Computer Science', 'English']
+        self.subjects_map = {
+            'Core': ['English', 'Mathematics', 'Science', 'Second Language', 'Arabic', 'Islamic Education'],
+            'Assessments': ['NGRT-A', 'NGRT-B', 'NGRT-C', 'ASSET - Eng', 'ASSET- Math', 'ASSET-Science', 'IS.BT', 
+                          'CAT4-Overall', 'Verbal', 'Quantitative', 'Spatial', 'Non-Verbal']
         }
-        self.optional_subjects = ['Computer Science', 'AI', 'Mass Media', 'Physical Education']
-        self.base_columns = ['StudentID', 'Name', 'Age', 'Grade', 'Section', 'Stream']
+        self.base_columns = ['StudentID', 'Name', 'Gender', 'Age', 'Grade', 'Section']
         self.attendance_columns = ['Date', 'Status', 'Remarks']
         self.dynamic_subjects = set()
         self._initialize_dataframe()
@@ -311,17 +311,25 @@ class EnhancedStudentDataModel:
         self._ensure_columns_and_types()
 
     def _all_subjects(self):
-        subjects = set()
-        for stream_subjects in self.streams.values():
-            subjects.update(stream_subjects)
-        subjects.update(self.optional_subjects)
-        subjects.update(self.dynamic_subjects)
-        return sorted(subjects)
+        """Return combined list of all subjects and assessments"""
+        all_subs = []
+        for subjects in self.subjects_map.values():
+            all_subs.extend(subjects)
+        all_subs.extend(list(self.dynamic_subjects)) # Add dynamic subjects
+        return sorted(list(set(all_subs))) # De-duplicate just in case
+        
+    def _standard_subjects(self):
+        """Return list of standard subjects"""
+        return self.subjects_map['Core']
+        
+    def _assessments(self):
+        """Return list of assessment columns"""
+        return self.subjects_map['Assessments']
 
     def _expected_columns(self):
         """Return list of all expected columns in the students dataframe"""
         return self.base_columns + self._all_subjects()
-
+        
     def _ensure_columns_and_types(self):
         """Ensure all expected columns exist and have correct data types"""
         expected = self._expected_columns()
@@ -354,27 +362,19 @@ class EnhancedStudentDataModel:
                 # Convert to numeric, coerce errors to NaN
                 self.students_df[subject] = pd.to_numeric(self.students_df[subject], errors='coerce')
                 
-                # Fill NaN with appropriate values, but PRESERVE existing valid numbers
+                # Fill NaN with appropriate values
                 mask = self.students_df[subject].isna()
                 if mask.any():
-                    # Check if subject should be N/A based on stream
+                    # Check if the original value was "N/A" string before numeric conversion
                     for idx in self.students_df[mask].index:
-                        stream = self.students_df.loc[idx, 'Stream']
-                        stream_subjects = self.streams.get(stream, [])
-                        
-                        # Check if the original value was "N/A" string before numeric conversion
                         original_val = current_values.iloc[idx] if idx < len(current_values) else None
                         if isinstance(original_val, str) and original_val.strip().upper() == "N/A":
                             self.students_df.loc[idx, subject] = "N/A"
-                        # For dynamic subjects or optional subjects, allow 0.
-                        # Only enforce N/A for known stream-specific mismatches if not dynamic
-                        elif stream != 'Other' and subject in self._standard_subjects() and subject not in stream_subjects:
-                             self.students_df.loc[idx, subject] = "N/A"
                         else:
                              self.students_df.loc[idx, subject] = 0
         
         # Handle string columns
-        for col in ['Name', 'Grade', 'Section', 'Stream']:
+        for col in ['Name', 'Gender', 'Grade', 'Section']:
             if col in self.students_df.columns:
                 self.students_df[col] = self.students_df[col].fillna("").astype(str)
 
@@ -452,27 +452,31 @@ class EnhancedStudentDataModel:
         
         # Prepare row with all columns
         new_row = {col: (0 if col in self._all_subjects() else "") for col in self._expected_columns()}
-        new_row.update(data_copy)
+        if self.students_df['StudentID'].notna().any():
+            if (self.students_df['StudentID'].dropna().astype(str) == str(data_copy['StudentID'])).any():
+                return False, "Student ID already exists."
         
-        # Clean marks
+        # New Subject Handling
         for subject in self._all_subjects():
-            if subject in data_copy:
-                val = data_copy[subject]
-                if str(val).strip().lower() == 'n/a':
-                     new_row[subject] = "N/A"
-                elif val == "" or val is None:
-                     new_row[subject] = 0
-                else:
-                    try:
-                        new_row[subject] = int(float(val))
-                    except:
-                        new_row[subject] = 0
+            if subject not in data_copy:
+                 data_copy[subject] = 0
             else:
-                # Set default N/A for standard stream mismatches
-                if stream != 'Other' and subject in self._standard_subjects() and subject not in stream_subjects:
-                    new_row[subject] = "N/A"
+                try:
+                    if data_copy[subject] != "N/A" and data_copy[subject] != "":
+                        data_copy[subject] = float(data_copy[subject]) # Allow floats for assessments
+                    elif data_copy[subject] == "":
+                        data_copy[subject] = 0
+                except:
+                    data_copy[subject] = "N/A" # Default to N/A if conversion fails
+        
+        # Handle string fields
+        for field in ['Gender', 'Section']:
+             if field in data_copy:
+                  data_copy[field] = str(data_copy[field])
+             else:
+                  data_copy[field] = ""
 
-        new_student = pd.DataFrame([new_row])
+        new_student = pd.DataFrame([data_copy], columns=self._expected_columns())
         self.students_df = pd.concat([self.students_df, new_student], ignore_index=True)
         self._ensure_columns_and_types()
         return True, "Student added successfully."
@@ -484,20 +488,20 @@ class EnhancedStudentDataModel:
         if not mask.any():
             return False, "Student ID not found."
         
-        current_stream = self.students_df.loc[mask, 'Stream'].iloc[0]
+        mask = self.students_df['StudentID'].notna() & (self.students_df['StudentID'].astype(str) == sid)
+        if not mask.any():
+            return False, "Student ID not found."
         
         for key, value in data.items():
             if key in self._all_subjects():
-                if current_stream != 'Other' and key not in self.streams.get(current_stream, []) and key not in self.optional_subjects:
-                    self.students_df.loc[mask, key] = "N/A"
-                else:
-                    try:
-                        if value != "N/A" and value != "":
-                            self.students_df.loc[mask, key] = int(value)
-                        elif value == "":
-                            self.students_df.loc[mask, key] = 0
-                    except:
-                        return False, f"Invalid mark for {key}."
+                try:
+                    if value != "N/A" and value != "":
+                        self.students_df.loc[mask, key] = float(value)
+                    elif value == "":
+                        self.students_df.loc[mask, key] = 0
+                except:
+                    return False, f"Invalid mark for {key}."
+
             elif key == 'Age':
                 try:
                     self.students_df.loc[mask, key] = int(value)
@@ -549,122 +553,81 @@ class EnhancedStudentDataModel:
         if student_row.empty:
             return None, "Student not found."
         
-        stream = student_row['Stream'].iloc[0]
-        subjects = self.get_subjects_for_stream(stream)
+        # Calculate total and percentage for Core Subjects
+        core_subjects = self.subjects_map['Core']
+        total_marks = 0
+        relevant_subjects = []
+        
+        for subject in core_subjects:
+            if subject in student_row.columns: # Ensure subject exists in student_row
+                mark = student_row[subject].iloc[0]
+                if mark != "N/A" and pd.notna(mark):
+                    try:
+                        mark_value = float(mark)
+                        if mark_value > 0: # Only count if > 0? Or just if valid?
+                            total_marks += mark_value
+                            relevant_subjects.append(subject)
+                    except:
+                        continue
+        
+        total_possible = len(relevant_subjects) * 100
+        percentage = (total_marks / total_possible * 100) if total_possible > 0 else 0.0
         
         # Prepare report data
         student_dict = {}
-        for col in self.students_df.columns:
+        for col in self._expected_columns():
             val = student_row.iloc[0][col]
-            if pd.isna(val):
-                student_dict[col] = "" if col in ['Name', 'Grade', 'Stream', 'Section'] else 0
-            else:
-                student_dict[col] = val
-
-        # Categorize marks for the report
-        categories = {
-            'Internal Assessment': {},
-            'ASSET Performance': {},
-            'NGERT Assessment': {}
-        }
-        
-        total_internal = 0
-        internal_count = 0
-        
-        for col in self.students_df.columns:
-            if col in self.base_columns or col in self.attendance_columns or col == 'StudentID':
-                continue
-                
-            mark = student_row[col].iloc[0]
-            if mark == "N/A":
-                continue
-                
-            col_upper = col.upper()
-            if "ASSET" in col_upper:
-                categories['ASSET Performance'][col] = mark
-            elif "NGERT" in col_upper:
-                categories['NGERT Assessment'][col] = mark
+            if pd.isna(val) and col not in self._all_subjects():
+                 student_dict[col] = ""
             elif col in self._all_subjects():
-                # Only include in internal if it's a standard subject for the stream or optional
-                if col in subjects or col in self.optional_subjects:
-                    categories['Internal Assessment'][col] = mark
-                    if isinstance(mark, (int, float, complex)) or (isinstance(mark, str) and mark.isdigit()):
-                        total_internal += int(mark)
-                        internal_count += 1
+                 student_dict[col] = val
+            elif col == 'Age':
+                    try:
+                        student_dict[col] = int(val)
+                    except:
+                        student_dict[col] = 0
             else:
-                # Catch-all for other dynamic columns
-                categories['Internal Assessment'][col] = mark
+                 student_dict[col] = str(val)
 
-        student_dict['Categories'] = categories
-        student_dict['Total'] = total_internal
-        student_dict['Percentage'] = (total_internal / (internal_count * 100) * 100) if internal_count > 0 else 0.0
-        student_dict['Subjects_Count'] = internal_count
-        
-        # Legacy/Internal keys
-        student_dict['Total_Internal'] = total_internal
-        student_dict['Percentage_Internal'] = student_dict['Percentage']
-        student_dict['Internal_Count'] = internal_count
+        student_dict['Total'] = total_marks
+        student_dict['Percentage'] = round(percentage, 2)
+        student_dict['Subjects_Count'] = len(relevant_subjects)
         
         return student_dict, "Report generated successfully."
 
     def get_subjects_for_stream(self, stream):
-        return self.streams.get(stream, [])
+        # Fallback compatibility - just return core subjects
+        return self.subjects_map['Core']
 
     def get_dashboard_stats(self):
         if self.students_df.empty:
-            return {'total_students': 0, 'stream_counts': {}, 'avg_marks_per_stream': {}, 'highest_marks': 0, 'lowest_marks': 0}
+            return {'total_students': 0, 'grade_counts': {}, 'avg_marks_per_subject': {}, 'assessment_avgs': {}}
         
         total_students = len(self.students_df)
-        stream_counts = self.students_df['Stream'].value_counts().to_dict()
+        grade_counts = self.students_df['Grade'].value_counts().to_dict()
         
-        avg_marks_per_stream = {}
-        for stream in self.streams.keys():
-            stream_students = self.students_df[self.students_df['Stream'] == stream]
-            if not stream_students.empty:
-                stream_subjects = self.streams[stream]
-                valid_marks = []
-                for _, student in stream_students.iterrows():
-                    for subject in stream_subjects:
-                        mark = student[subject]
-                        if mark != "N/A" and pd.notna(mark) and str(mark).isdigit():
-                            try:
-                                valid_marks.append(int(mark))
-                            except:
-                                pass
-                
-                if valid_marks:
-                    avg_marks = sum(valid_marks) / len(valid_marks)
-                    avg_marks_per_stream[stream] = round(avg_marks, 2)
-                else:
-                    avg_marks_per_stream[stream] = 0
+        # Subject Averages (Core)
+        avg_marks_per_subject = {}
+        for subject in self.subjects_map['Core']:
+            if subject in self.students_df.columns: # Ensure subject column exists
+                valid_marks = pd.to_numeric(self.students_df[subject], errors='coerce').dropna()
+                valid_marks = valid_marks[valid_marks != 0] # Exclude 0s?
+                if not valid_marks.empty:
+                    avg_marks_per_subject[subject] = round(valid_marks.mean(), 2)
         
-        all_marks = []
-        for _, student in self.students_df.iterrows():
-            stream = student['Stream']
-            subjects = self.get_subjects_for_stream(stream)
-            total_marks = 0
-            count = 0
-            for subject in subjects:
-                if subject in student:
-                    mark = student[subject]
-                    if mark != "N/A" and pd.notna(mark) and str(mark).isdigit():
-                        try:
-                            total_marks += int(mark)
-                            count += 1
-                        except:
-                            pass
-            if count > 0:
-                all_marks.append(total_marks)
-        
-        highest_marks = max(all_marks) if all_marks else 0
-        lowest_marks = min(all_marks) if all_marks else 0
+        # Assessment Averages
+        assessment_avgs = {}
+        for assessment in self.subjects_map['Assessments']:
+            if assessment in self.students_df.columns: # Ensure assessment column exists
+                valid_scores = pd.to_numeric(self.students_df[assessment], errors='coerce').dropna()
+                if not valid_scores.empty:
+                    assessment_avgs[assessment] = round(valid_scores.mean(), 2)
         
         return {
             'total_students': total_students,
-            'stream_counts': stream_counts,
-            'avg_marks_per_stream': avg_marks_per_stream,
-            'highest_marks': highest_marks,
-            'lowest_marks': lowest_marks
+            'grade_counts': grade_counts,
+            'avg_marks_per_subject': avg_marks_per_subject,
+            'assessment_avgs': assessment_avgs
         }
 
     def get_table_columns(self):
@@ -797,23 +760,25 @@ class EnhancedStudentDataModel:
         # Recommendations
         recommendations = []
         if current_avg < 70:
-            recommendations.append("Consider additional tutoring sessions")
-        if attendance_stats['percentage'] < 80:
-            recommendations.append("Improve attendance for better performance")
+            recommendations.append("Consider additional tutoring for core subjects")
         
+        # Check specific assessments (Example logic)
+        cat4_col = 'CAT4-Overall'
+        if cat4_col in student_row and pd.notna(student_row[cat4_col].iloc[0]):
+             cat4_val = float(student_row[cat4_col].iloc[0])
+             if cat4_val > 110 and current_avg < 70:
+                  recommendations.append("High Potential (high CAT4), but underperforming in marks.")
+        
+        if attendance_stats['percentage'] < 85:
+             recommendations.append("Improve attendance")
+
         weak_subjects = [subj for subj, mark in current_marks.items() if mark < 60]
         if weak_subjects:
             recommendations.append(f"Focus on improving: {', '.join(weak_subjects)}")
         
-        # Add motivational message
-        if current_avg >= 80:
-            recommendations.append("Excellent performance! Keep up the great work!")
-        elif current_avg >= 70:
-            recommendations.append("Good performance! Aim for excellence!")
-        
         return {
             'current_average': round(current_avg, 2),
-            'predicted_average': round(predicted_avg, 2),
+            'predicted_average': round(predicted_avg, 2), # Simple placeholder prediction
             'improvement_potential': round(predicted_improvement, 2),
             'risk_level': risk_level,
             'attendance_impact': round(attendance_impact * 100, 2),
@@ -829,21 +794,22 @@ class EnhancedStudentDataModel:
         if self.students_df.empty:
             return alerts
         
-        # Low performance alerts
+        # Low performance alerts (Core Subjects)
         for _, student in self.students_df.iterrows():
-            stream = student['Stream']
-            subjects = self.streams.get(stream, [])
             total_marks = 0
             subject_count = 0
             
-            for subject in subjects:
-                mark = student[subject]
-                if mark != "N/A" and pd.notna(mark) and str(mark).isdigit():
-                    try:
-                        total_marks += int(mark)
-                        subject_count += 1
-                    except:
-                        continue
+            for subject in self.subjects_map['Core']:
+                if subject in student.index: # Ensure subject exists in the student row
+                    mark = student[subject]
+                    if mark != "N/A" and pd.notna(mark):
+                        try:
+                            val = float(mark)
+                            if val > 0:
+                                total_marks += val
+                                subject_count += 1
+                        except:
+                            continue
             
             if subject_count > 0:
                 avg_marks = total_marks / subject_count
@@ -859,10 +825,10 @@ class EnhancedStudentDataModel:
                     alerts.append({
                         'type': 'Performance',
                         'level': 'Medium',
-                        'message': f"{student['Name']} (ID: {student['StudentID']}) has below average marks ({avg_marks:.1f})",
-                        'student_id': student['StudentID'],
-                        'timestamp': datetime.now()
-                    })
+                        'message': f"{student['Name']} (ID: {student['StudentID']}) from {student['Grade']}-{student['Section']} needs improvement ({avg_marks:.1f})",
+                         'student_id': student['StudentID'],
+                         'timestamp': datetime.now()
+                     })
         
         # Attendance alerts
         for student_id in self.students_df['StudentID'].unique():
@@ -963,23 +929,29 @@ class EnhancedStudentDataModel:
                 'Phy': 'Physics', 'Physics Theory': 'Physics',
                 'Chem': 'Chemistry', 'Chemistry Theory': 'Chemistry',
                 'Bio': 'Biology', 'Biology Theory': 'Biology',
-                'Eng': 'English', 'English Core': 'English',
-                'CS': 'Computer Science', 'Comp Sci': 'Computer Science', 'Computer': 'Computer Science',
-                'Acc': 'Accountancy', 'Accounts': 'Accountancy',
-                'Eco': 'Economics', 'Econ': 'Economics',
-                'BS': 'Business Studies', 'Business': 'Business Studies',
-                'PE': 'Physical Education', 'Phys Ed': 'Physical Education',
+                'Eng': 'English', 'English Core': 'English', 
+                'Second Language ': 'Second Language', # Handle detailed mapping
+                'NGRT A': 'NGRT-A', 'NGRT B': 'NGRT-B', 'NGRT C': 'NGRT-C',
+                'ASSET Eng': 'ASSET - Eng', 'ASSET Math': 'ASSET- Math', 'ASSET Science': 'ASSET-Science',
+                'IS BT': 'IS.BT', 'CAT4 Overall': 'CAT4-Overall'
             }
             
             # Apply renaming (case-insensitive lookup)
             new_cols = []
             for col in new_data.columns:
-                col_lower = col.strip().lower()
-                mapped_col = col.strip()  # Default to original (stripped)
-                for alias, target in ALIAS_MAPPING.items():
-                    if alias.lower() == col_lower:
-                        mapped_col = target
-                        break
+                col_stripped = col.strip() # Remove main stripping first
+                mapped_col = col_stripped # Default
+                
+                # Check mapping
+                if col in ALIAS_MAPPING: # Exact match including spaces
+                     mapped_col = ALIAS_MAPPING[col]
+                else:
+                    col_lower = col_stripped.lower()
+                    for alias, target in ALIAS_MAPPING.items():
+                        if alias.lower() == col_lower:
+                            mapped_col = target
+                            break
+                            
                 new_cols.append(mapped_col)
             
             new_data.columns = new_cols
@@ -1006,13 +978,8 @@ class EnhancedStudentDataModel:
                         cleaned_data['Stream'] = cleaned_data['Stream'].capitalize()
                     
                     # Ensure properly typed ID (String)
-                    try:
-                        cleaned_data['StudentID'] = str(cleaned_data['StudentID']).strip()
-                        if not cleaned_data['StudentID']:
-                            raise ValueError("Empty ID")
-                    except:
-                        error_messages.append(f"Row {idx+2}: Invalid StudentID")
-                        continue
+                    if 'StudentID' in cleaned_data:
+                         cleaned_data['StudentID'] = str(cleaned_data['StudentID']).strip()
                     
                     # FLEXIBLE: Add smart defaults for missing required fields
                     if 'Name' not in cleaned_data or not cleaned_data.get('Name'):
@@ -1181,38 +1148,41 @@ def manage_students(data_model):
             with col1:
                 student_id = st.text_input("Student ID")
                 name = st.text_input("Full Name")
-                age = st.number_input("Age", min_value=10, max_value=25, step=1)
-                grade = st.selectbox("Grade", ["9th", "10th", "11th", "12th"])
-                section = st.selectbox("Section", ["A", "B", "C", "D", "E", "F", "G", "H"])
-                stream = st.selectbox("Stream", ["Science", "Commerce", "Other"])
+                gender = st.selectbox("Gender", ["Male", "Female"])
             
             with col2:
-                st.markdown("#### Subject Marks (0-100)")
-                
-                # Show subjects based on stream
-                subjects = data_model.get_subjects_for_stream(stream)
-                optional_subjects = ["Computer Science", "AI", "Mass Media", "Physical Education"]
-                
-                marks = {}
-                for subject in subjects:
-                    marks[subject] = st.slider(f"{subject}", 0, 100, 0)
-                
-                st.markdown("#### Optional Subjects")
-                for subject in optional_subjects:
-                    if st.checkbox(f"Add {subject}"):
-                        marks[subject] = st.slider(f"{subject} Mark", 0, 100, 0, key=f"opt_{subject}")
+                grade = st.selectbox("Grade", ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"])
+                section = st.selectbox("Section", ["A", "B", "C", "D", "E"])
+                age = st.number_input("Age", min_value=5, max_value=16, step=1, value=6)
             
-            if st.form_submit_button("🚀 Add Student", width='stretch'):
+            st.markdown("---")
+            
+            col_core, col_assess = st.columns(2)
+            
+            with col_core:
+                st.markdown("#### 📚 Core Subjects")
+                core_subjects = data_model.subjects_map['Core']
+                marks = {}
+                for subject in core_subjects:
+                    marks[subject] = st.slider(f"{subject}", 0.0, 100.0, 0.0)
+            
+            with col_assess:
+                st.markdown("#### 📝 Assessments")
+                assessments = data_model.subjects_map['Assessments']
+                for subject in assessments:
+                    marks[subject] = st.number_input(f"{subject}", min_value=0.0, max_value=200.0, value=0.0, step=1.0)
+            
+            if st.form_submit_button("🚀 Add Student", use_container_width=True):
                 student_data = {
                     'StudentID': student_id,
                     'Name': name,
-                    'Age': age,
+                    'Gender': gender,
                     'Grade': grade,
                     'Section': section,
-                    'Stream': stream
+                    'Age': age
                 }
                 
-                # Add subject marks
+                # Add marks
                 for subject, mark in marks.items():
                     student_data[subject] = mark
                 
@@ -1239,35 +1209,45 @@ def manage_students(data_model):
                         
                         with col1:
                             name = st.text_input("Full Name", value=report['Name'])
-                            age = st.number_input("Age", min_value=10, max_value=25, 
-                                                value=int(report['Age']), step=1)
-                            grade = st.selectbox("Grade", ["9th", "10th", "11th", "12th"], 
-                                               index=["9th", "10th", "11th", "12th"].index(report['Grade']) if report['Grade'] in ["9th", "10th", "11th", "12th"] else 0)
-                            stream = st.selectbox("Stream", ["Science", "Commerce", "Other"], 
-                                                index=["Science", "Commerce", "Other"].index(report['Stream']) if report['Stream'] in ["Science", "Commerce", "Other"] else 0)
-                        
-                        with col2:
-                            st.markdown("#### Update Subject Marks")
+                            gender = st.selectbox("Gender", ["Male", "Female"], 
+                                                index=["Male", "Female"].index(report.get('Gender', 'Male')) if report.get('Gender') in ['Male', 'Female'] else 0)
+                            grade = st.selectbox("Grade", ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"], 
+                                               index=["I", "II", "III", "IV", "V", "VI", "VII", "VIII"].index(report.get('Grade', 'I')) if report.get('Grade') in ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"] else 0)
                             
-                            subjects = data_model.get_subjects_for_stream(stream)
-                            for subject in subjects:
-                                current_mark = report.get(subject, 0)
-                                if current_mark == "N/A":
-                                    current_mark = 0
-                                marks = st.slider(f"{subject}", 0, 100, int(current_mark))
-                                report[subject] = marks
+                        with col2:
+                            section = st.selectbox("Section", ["A", "B", "C", "D", "E"],
+                                                 index=["A", "B", "C", "D", "E"].index(report.get('Section', 'A')) if report.get('Section') in ["A", "B", "C", "D", "E"] else 0)
+                            age = st.number_input("Age", min_value=5, max_value=16, 
+                                                value=int(report.get('Age', 6)), step=1)
                         
-                        if st.form_submit_button("💾 Update Student", width='stretch'):
+                        st.markdown("#### 📚 Update Academic Records")
+                        
+                        tabs = st.tabs(["Core Subjects", "Assessments"])
+                        
+                        updated_marks = {}
+                        
+                        with tabs[0]:
+                            for subject in data_model.subjects_map['Core']:
+                                current_mark = report.get(subject, 0)
+                                if current_mark == "N/A": current_mark = 0.0
+                                updated_marks[subject] = st.slider(f"{subject}", 0.0, 100.0, float(current_mark))
+                        
+                        with tabs[1]:
+                            for subject in data_model.subjects_map['Assessments']:
+                                current_mark = report.get(subject, 0)
+                                if current_mark == "N/A": current_mark = 0.0
+                                updated_marks[subject] = st.number_input(f"{subject}", min_value=0.0, max_value=200.0, 
+                                                                       value=float(current_mark), step=1.0)
+
+                        if st.form_submit_button("💾 Update Student", use_container_width=True):
                             update_data = {
                                 'Name': name,
-                                'Age': age,
+                                'Gender': gender,
                                 'Grade': grade,
-                                'Stream': stream
+                                'Section': section,
+                                'Age': age,
+                                **updated_marks
                             }
-                            
-                            # Add subject marks
-                            for subject in subjects:
-                                update_data[subject] = report.get(subject, 0)
                             
                             success, message = data_model.update_student(selected_id, update_data)
                             if success:
@@ -1293,7 +1273,7 @@ def manage_students(data_model):
                 st.warning(f"⚠️ You are about to delete:")
                 st.write(f"**Name:** {student_info['Name']}")
                 st.write(f"**ID:** {selected_id}")
-                st.write(f"**Stream:** {student_info['Stream']}")
+                st.write(f"**Grade:** {student_info.get('Grade', 'N/A')} - {student_info.get('Section', 'N/A')}")
                 
                 if st.button("🗑️ Confirm Delete", type="secondary", width='stretch'):
                     success, message = data_model.delete_student(selected_id)
@@ -1431,7 +1411,9 @@ def advanced_search(data_model):
         
         with col1:
             name_filter = st.text_input("Search by Name")
-            stream_filter = st.selectbox("Stream", ["All", "Science", "Commerce", "Other"])
+        with col1:
+            name_filter = st.text_input("Search by Name")
+            section_filter = st.selectbox("Section", ["All", "A", "B", "C", "D", "E"])
         
         with col2:
             grade_filter = st.text_input("Grade (e.g., 11th)")
@@ -1446,7 +1428,8 @@ def advanced_search(data_model):
     if search_clicked:
         filters = {
             'name': name_filter if name_filter else None,
-            'stream': stream_filter if stream_filter != "All" else None,
+            'name': name_filter if name_filter else None,
+            'section': section_filter if section_filter != "All" else None,
             'grade': grade_filter if grade_filter else None,
             'min_marks': min_marks_filter if min_marks_filter > 0 else None
         }
@@ -2739,22 +2722,31 @@ def show_dashboard(data_model):
         """, unsafe_allow_html=True)
     
     with col2:
-        science_count = stats['stream_counts'].get('Science', 0)
+        most_common_grade = "N/A"
+        count = 0
+        if 'grade_counts' in stats and stats['grade_counts']:
+            most_common_grade = max(stats['grade_counts'], key=stats['grade_counts'].get)
+            count = stats['grade_counts'][most_common_grade]
+            
         st.markdown(f"""
             <div class='metric-card floating' style='animation-delay: 0.2s;'>
-                <h3>🔬 Science Stream</h3>
-                <h1 style='font-size: 2.5rem; margin: 0.5rem 0;'>{science_count}</h1>
-                <p>Future scientists</p>
+                <h3>📊 Largest Grade</h3>
+                <h1 style='font-size: 2.5rem; margin: 0.5rem 0;'>{most_common_grade}</h1>
+                <p>{count} Students</p>
             </div>
         """, unsafe_allow_html=True)
     
     with col3:
-        commerce_count = stats['stream_counts'].get('Commerce', 0)
+        # Calculate overall avg
+        overall_avg = 0
+        if 'avg_marks_per_subject' in stats and stats['avg_marks_per_subject']:
+            overall_avg = sum(stats['avg_marks_per_subject'].values()) / len(stats['avg_marks_per_subject'])
+            
         st.markdown(f"""
             <div class='metric-card floating' style='animation-delay: 0.4s;'>
-                <h3>💼 Commerce Stream</h3>
-                <h1 style='font-size: 2.5rem; margin: 0.5rem 0;'>{commerce_count}</h1>
-                <p>Business leaders</p>
+                <h3>📈 Class Average</h3>
+                <h1 style='font-size: 2.5rem; margin: 0.5rem 0;'>{overall_avg:.1f}%</h1>
+                <p>Across Core Subjects</p>
             </div>
         """, unsafe_allow_html=True)
     
@@ -2775,56 +2767,48 @@ def show_dashboard(data_model):
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("### 📊 Stream Performance")
-            if stats['avg_marks_per_stream'] and any(avg > 0 for avg in stats['avg_marks_per_stream'].values()):
+            st.markdown("### 📊 Subject Performance (Core)")
+            if 'avg_marks_per_subject' in stats and stats['avg_marks_per_subject']:
                 fig, ax = plt.subplots(figsize=(10, 6))
-                streams = list(stats['avg_marks_per_stream'].keys())
-                averages = list(stats['avg_marks_per_stream'].values())
+                subjects = list(stats['avg_marks_per_subject'].keys())
+                averages = list(stats['avg_marks_per_subject'].values())
                 
                 # Create gradient colors
-                colors = ['#667eea', '#764ba2']
-                bars = ax.bar(streams, averages, color=colors, alpha=0.8, edgecolor='white', linewidth=2)
+                colors = sns.color_palette("viridis", len(subjects))
+                bars = ax.bar(subjects, averages, color=colors, alpha=0.8, edgecolor='white', linewidth=2)
                 ax.set_ylabel('Average Marks', fontweight='bold')
-                ax.set_title('Stream-wise Average Performance', fontweight='bold', fontsize=14, pad=20)
+                ax.set_title('Subject-wise Average Performance', fontweight='bold', fontsize=14, pad=20)
                 ax.set_ylim(0, 100)
                 ax.grid(axis='y', alpha=0.3)
                 
-                # Add value labels on bars with animation effect
+                # Add value labels
                 for bar, value in zip(bars, averages):
                     ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1, 
-                           f'{value}%', ha='center', va='bottom', fontweight='bold', fontsize=12,
-                           bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.8))
+                           f'{value}%', ha='center', va='bottom', fontweight='bold', fontsize=10)
                 
+                plt.xticks(rotation=45, ha='right')
                 plt.tight_layout()
                 st.pyplot(fig)
             else:
-                st.info("📝 No marks data available for visualization. Add student marks to see analytics.")
+                st.info("📝 No marks data available for visualization.")
         
         with col2:
-            st.markdown("### 🎯 Stream Distribution")
-            if stats['stream_counts']:
+            st.markdown("### 🎯 Grade Distribution")
+            if 'grade_counts' in stats and stats['grade_counts']:
                 fig, ax = plt.subplots(figsize=(10, 6))
-                streams = list(stats['stream_counts'].keys())
-                counts = list(stats['stream_counts'].values())
-                colors = ['#667eea', '#764ba2', '#f093fb', '#f5576c']
+                grades = list(stats['grade_counts'].keys())
+                counts = list(stats['grade_counts'].values())
                 
                 # Create donut chart
-                wedges, texts, autotexts = ax.pie(counts, labels=streams, autopct='%1.1f%%', 
-                                                colors=colors[:len(streams)], startangle=90,
+                wedges, texts, autotexts = ax.pie(counts, labels=grades, autopct='%1.1f%%', 
+                                                startangle=90, pctdistance=0.85,
                                                 wedgeprops=dict(width=0.3, edgecolor='w'))
                 
-                # Style the autotexts
-                for autotext in autotexts:
-                    autotext.set_color('white')
-                    autotext.set_fontweight('bold')
-                    autotext.set_fontsize(12)
+                # Style texts
+                plt.setp(autotexts, size=10, weight="bold", color="white")
+                plt.setp(texts, size=10, weight="bold")
                 
-                # Style the labels
-                for text in texts:
-                    text.set_fontsize(11)
-                    text.set_fontweight('bold')
-                
-                ax.set_title('Student Distribution by Stream', fontweight='bold', fontsize=14, pad=20)
+                ax.set_title('Student Distribution by Grade', fontweight='bold', fontsize=14, pad=20)
                 st.pyplot(fig)
         
         # Recent alerts preview with enhanced design
