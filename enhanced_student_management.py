@@ -299,7 +299,12 @@ class EnhancedStudentDataModel:
             'Assessments': ['NGRT-A', 'NGRT-B', 'NGRT-C', 'ASSET - Eng', 'ASSET- Math', 'ASSET-Science', 'IS.BT', 
                           'CAT4-Overall', 'Verbal', 'Quantitative', 'Spatial', 'Non-Verbal']
         }
-        self.base_columns = ['StudentID', 'Name', 'Gender', 'Age', 'Grade', 'Section']
+        self.base_columns = ['StudentID', 'Name', 'Gender', 'Age', 'Grade', 'Section', 'Stream']
+        self.streams = {
+            'Science': ['Physics', 'Chemistry', 'Mathematics', 'Biology', 'Computer Science'],
+            'Commerce': ['Accountancy', 'Business Studies', 'Economics', 'Informatics Practices'],
+            'Humanities': ['History', 'Geography', 'Political Science', 'Sociology']
+        }
         self.attendance_columns = ['Date', 'Status', 'Remarks']
         self.dynamic_subjects = set()
         self._initialize_dataframe()
@@ -586,6 +591,29 @@ class EnhancedStudentDataModel:
             else:
                  student_dict[col] = str(val)
 
+        # Categorize subjects for the UI
+        categories = {
+            'Internal Assessment': {},
+            'ASSET Performance': {},
+            'NGERT Assessment': {}
+        }
+        
+        all_subjects = self._all_subjects()
+        for subject in all_subjects:
+            mark = student_row[subject].iloc[0] if subject in student_row.columns else 0
+            if mark != "N/A" and pd.notna(mark):
+                try:
+                    mark_val = float(mark)
+                    if subject.startswith('ASSET'):
+                        categories['ASSET Performance'][subject] = mark_val
+                    elif subject.startswith('NGRT'):
+                        categories['NGERT Assessment'][subject] = mark_val
+                    else:
+                        categories['Internal Assessment'][subject] = mark_val
+                except:
+                    pass
+
+        student_dict['Categories'] = categories
         student_dict['Total'] = total_marks
         student_dict['Percentage'] = round(percentage, 2)
         student_dict['Subjects_Count'] = len(relevant_subjects)
@@ -854,6 +882,9 @@ class EnhancedStudentDataModel:
         if filters.get('name'):
             results = results[results['Name'].str.contains(filters['name'], case=False, na=False)]
         
+        if filters.get('section'):
+            results = results[results['Section'] == filters['section']]
+            
         if filters.get('stream') and filters['stream'] != 'All':
             results = results[results['Stream'] == filters['stream']]
         
@@ -1450,12 +1481,11 @@ def advanced_search(data_model):
         
         with col1:
             name_filter = st.text_input("Search by Name")
-        with col1:
-            name_filter = st.text_input("Search by Name")
             section_filter = st.selectbox("Section", ["All", "A", "B", "C", "D", "E"])
         
         with col2:
             grade_filter = st.text_input("Grade (e.g., 11th)")
+            stream_filter_search = st.selectbox("Stream", ["All"] + list(data_model.streams.keys()) + ["Other"])
             min_marks_filter = st.slider("Minimum Average Marks", 0, 100, 0)
         
         with col3:
@@ -1467,9 +1497,9 @@ def advanced_search(data_model):
     if search_clicked:
         filters = {
             'name': name_filter if name_filter else None,
-            'name': name_filter if name_filter else None,
             'section': section_filter if section_filter != "All" else None,
             'grade': grade_filter if grade_filter else None,
+            'stream': stream_filter_search if stream_filter_search != "All" else None,
             'min_marks': min_marks_filter if min_marks_filter > 0 else None
         }
         
@@ -1543,7 +1573,7 @@ def advanced_search(data_model):
             data=csv,
             file_name=f"search_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv",
-            width='stretch'
+            use_container_width=True
         )
     else:
         st.info("📝 No students found matching your criteria.")
@@ -1726,7 +1756,7 @@ def show_individual_report(data_model):
                             'Subjects Count': report['Subjects_Count']
                         },
                         'Subject-wise Marks': {
-                            subject: report.get(subject, 'N/A') for subject in subjects
+                            subject: report.get(subject, 'N/A') for subject in data_model._all_subjects()
                         },
                         'Attendance': attendance_stats
                     }
@@ -1763,17 +1793,17 @@ def show_class_roster(data_model):
     
     if not data_model.students_df.empty:
         # Filters
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         with col1:
-            stream_filter = st.selectbox("Filter by Stream", ["All"] + list(data_model.streams.keys()))
-        with col2:
             grade_filter = st.selectbox("Filter by Grade", ["All"] + sorted(data_model.students_df['Grade'].unique().tolist()))
-        with col3:
+        with col2:
             # Get unique sections, filter out empty strings
             sections = sorted([s for s in data_model.students_df['Section'].unique().tolist() if s and s.strip()])
             section_filter = st.selectbox("Filter by Section", ["All"] + sections)
-        with col4:
-            sort_by = st.selectbox("Sort by", ["Name", "StudentID", "Stream", "Grade", "Section"])
+        with col3:
+            stream_filter = st.selectbox("Filter by Stream", ["All"] + sorted(data_model.students_df['Stream'].unique().tolist()))
+        
+        sort_by = st.selectbox("Sort by", ["Name", "StudentID", "Grade", "Section", "Stream"])
         
         # Apply filters
         filtered_df = data_model.students_df.copy()
@@ -1930,24 +1960,24 @@ def show_analytics(data_model):
                     st.pyplot(fig)
             
             with col2:
-                st.markdown("#### Stream-wise Comparison")
+                st.markdown("#### Grade-wise Comparison")
                 
-                stream_performance = {}
-                for stream in data_model.streams.keys():
-                    stream_students = data_model.students_df[data_model.students_df['Stream'] == stream]
+                grade_performance = {}
+                for grade in data_model.students_df['Grade'].unique():
+                    grade_students = data_model.students_df[data_model.students_df['Grade'] == grade]
                     percentages = []
                     
-                    for _, student in stream_students.iterrows():
+                    for _, student in grade_students.iterrows():
                         report, _ = data_model.get_individual_report(student['StudentID'])
                         if report:
                             percentages.append(report.get('Percentage', 0))
                     
                     if percentages:
-                        stream_performance[stream] = np.mean(percentages)
+                        grade_performance[grade] = np.mean(percentages)
                 
-                if stream_performance:
+                if grade_performance:
                     fig, ax = plt.subplots(figsize=(10, 6))
-                    streams = list(stream_performance.keys())
+                    grades = list(grade_performance.keys())
                     performances = list(stream_performance.values())
                     
                     bars = ax.bar(streams, performances, color=['#667eea', '#764ba2'], alpha=0.8)
@@ -1965,7 +1995,7 @@ def show_analytics(data_model):
             st.markdown("### 🎯 Comparative Analysis")
             
             # Select students to compare
-            student_ids = data_model.students_df['StudentID'].dropna().astype(int).tolist()
+            student_ids = data_model.students_df['StudentID'].dropna().astype(str).tolist()
             selected_ids = st.multiselect("Select Students to Compare", student_ids, max_selections=4)
             
             if len(selected_ids) >= 2:
@@ -2128,7 +2158,7 @@ def attendance_tracking(data_model):
         
         with col2:
             if not data_model.students_df.empty:
-                student_ids = data_model.students_df['StudentID'].dropna().astype(int).tolist()
+                student_ids = data_model.students_df['StudentID'].dropna().astype(str).tolist()
                 student_names = data_model.students_df['Name'].tolist()
                 
                 # Create dictionary for display
@@ -2315,7 +2345,7 @@ def email_reports(data_model):
     
     if not data_model.students_df.empty:
         # Student selection
-        student_ids = data_model.students_df['StudentID'].dropna().astype(int).tolist()
+        student_ids = data_model.students_df['StudentID'].dropna().astype(str).tolist()
         student_names = data_model.students_df['Name'].tolist()
         
         student_options = {f"{name} (ID: {sid})": sid for name, sid in zip(student_names, student_ids)}
@@ -2447,7 +2477,11 @@ def bulk_operations(data_model):
                 with col2:
                     if st.button("🚀 Start Bulk Import", width='stretch'):
                         with st.spinner("Importing data..."):
-                            success, message, errors = data_model.bulk_import_students(uploaded_file)
+                            is_merge = (import_mode == "Update Existing")
+                            if import_mode == "Overwrite All":
+                                data_model.students_df = data_model.students_df.iloc[0:0] # Clear data
+                            
+                            success, message, errors = data_model.bulk_import_students(uploaded_file, merge=is_merge)
                             
                             if success:
                                 st.success(f"✅ {message}")
@@ -2478,7 +2512,7 @@ def bulk_operations(data_model):
                 st.markdown("#### Update Marks for Multiple Students")
                 
                 # Select students
-                student_ids = data_model.students_df['StudentID'].dropna().astype(int).tolist()
+                student_ids = data_model.students_df['StudentID'].dropna().astype(str).tolist()
                 selected_ids = st.multiselect("Select Students", student_ids)
                 
                 if selected_ids:
@@ -2504,32 +2538,32 @@ def bulk_operations(data_model):
                                 for error in error_messages:
                                     st.error(error)
             
-            elif update_type == "Update Stream":
-                st.markdown("#### Bulk Stream Update")
+            if update_type == "Update Grade":
+                st.markdown("#### Bulk Grade Update")
                 
                 # Filter students
-                current_stream = st.selectbox("Current Stream", ["All"] + list(data_model.streams.keys()))
-                new_stream = st.selectbox("New Stream", list(data_model.streams.keys()))
+                current_grade = st.selectbox("Current Grade", ["All"] + sorted(data_model.students_df['Grade'].unique()))
+                new_grade = st.text_input("New Grade")
                 
-                if current_stream != "All":
+                if current_grade != "All":
                     filtered_students = data_model.students_df[
-                        data_model.students_df['Stream'] == current_stream
+                        data_model.students_df['Grade'] == current_grade
                     ]
                     
                     if not filtered_students.empty:
                         st.write(f"**Students to update:** {len(filtered_students)}")
                         
-                        if st.button("🔄 Update Streams", width='stretch'):
+                        if st.button("🔄 Update Grades", width='stretch'):
                             success_count = 0
                             for _, student in filtered_students.iterrows():
                                 success, _ = data_model.update_student(
                                     student['StudentID'], 
-                                    {'Stream': new_stream}
+                                    {'Grade': new_grade}
                                 )
                                 if success:
                                     success_count += 1
                             
-                            st.success(f"✅ Updated {success_count} students to {new_stream} stream")
+                            st.success(f"✅ Updated {success_count} students to {new_grade} grade")
     
     with tab3:
         st.markdown("### 📤 Bulk Export Options")
