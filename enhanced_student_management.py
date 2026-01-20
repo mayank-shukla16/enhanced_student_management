@@ -2001,11 +2001,11 @@ def show_analytics(data_model):
                 if grade_performance:
                     fig, ax = plt.subplots(figsize=(10, 6))
                     grades = list(grade_performance.keys())
-                    performances = list(stream_performance.values())
+                    performances = list(grade_performance.values())
                     
-                    bars = ax.bar(streams, performances, color=['#667eea', '#764ba2'], alpha=0.8)
+                    bars = ax.bar(grades, performances, color=['#667eea', '#764ba2'], alpha=0.8)
                     ax.set_ylabel('Average Percentage', fontweight='bold')
-                    ax.set_title('Stream Performance Comparison', fontweight='bold')
+                    ax.set_title('Grade Performance Comparison', fontweight='bold')
                     ax.set_ylim(0, 100)
                     
                     for bar, value in zip(bars, performances):
