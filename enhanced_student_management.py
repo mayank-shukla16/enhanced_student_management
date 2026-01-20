@@ -918,7 +918,26 @@ class EnhancedStudentDataModel:
             results = results[results['avg_marks'] >= filters['min_marks']]
         
         if filters.get('grade'):
-            results = results[results['Grade'].str.contains(filters['grade'], case=False, na=False)]
+            grade_query = str(filters['grade']).strip().upper()
+            
+            # Smart Grade Mapping (Numbers <-> Roman Numerals)
+            grade_map = {
+                '1': 'I', '2': 'II', '3': 'III', '4': 'IV', '5': 'V',
+                '6': 'VI', '7': 'VII', '8': 'VIII', '9': 'IX', '10': 'X',
+                '11': 'XI', '12': 'XII'
+            }
+            inv_grade_map = {v: k for k, v in grade_map.items()}
+            
+            # If input is a number, also look for its Roman numeral equivalent (and vice versa)
+            search_terms = [grade_query]
+            if grade_query in grade_map:
+                search_terms.append(grade_map[grade_query])
+            elif grade_query in inv_grade_map:
+                search_terms.append(inv_grade_map[grade_query])
+            
+            # Construct a regex pattern for multiple search terms
+            pattern = '|'.join(search_terms)
+            results = results[results['Grade'].str.contains(pattern, case=False, na=False)]
         
         return results
 
@@ -1555,7 +1574,11 @@ def advanced_search(data_model):
                 st.metric("📊 Average Performance", f"{avg_of_avgs:.1f}%")
             
             with col2:
-                top_student = results.iloc[0]['Name']
+                if 'Average Marks' in results.columns:
+                    top_student_row = results.loc[results['Average Marks'].idxmax()]
+                    top_student = top_student_row['Name']
+                else:
+                    top_student = results.iloc[0]['Name']
                 st.metric("🏆 Top Student", top_student)
             
             with col3:
@@ -1672,7 +1695,7 @@ def show_individual_report(data_model):
                             pct = (mark / max_val * 100)
                             color = "#4834d4"
                             st.markdown(f"**{subject}: {mark}/{max_val}**")
-                            st.progress(pct/100)
+                            st.progress(min(1.0, max(0.0, pct/100)))
                     else:
                         st.info("No ASSET evaluation data.")
 
@@ -1685,7 +1708,7 @@ def show_individual_report(data_model):
                             pct = (mark / 9 * 100) if mark <= 9 else (mark / 100 * 100)
                             color = "#eb4d4b"
                             st.markdown(f"**{subject}: {mark}/9**")
-                            st.progress(pct/100)
+                            st.progress(min(1.0, max(0.0, pct/100)))
                     else:
                         st.info("No NGERT assessment data.")
                 
